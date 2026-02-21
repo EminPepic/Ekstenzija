@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Swagger Reader</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h2>Swagger Reader</h2>
+
+  <label>Unesi Swagger URL:</label>
+  <input id="swaggerUrl" type="text" placeholder="https://petstore.swagger.io/v2/swagger.json">
+  <button id="loadSwagger">UÄitaj Swagger</button>
+
+  <div id="output" style="margin-top: 15px;"></div>
+
+  <div id="timeline" style="margin-top: 20px; display: none;">
+    <h3>Timeline Testiranja</h3>
+    <ul id="timelineList"></ul>
+    <button id="backBtn" style="margin-top: 10px;">Nazad</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "node-backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "autocannon": "^8.0.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "node-fetch": "^2.6.1"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Swagger Service Tester",
+  "version": "1.0",
+  "description": "Automatsko testiranje REST servisa putem Swagger dokumentacije",
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "permissions": ["storage"],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "https://*/*"
+  ]
+}
+
+
+
