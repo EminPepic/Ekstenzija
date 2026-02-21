@@ -1,5 +1,5 @@
 let currentSwagger = null;
-const BACKEND_URL = "https://YOUR-BACKEND-URL";
+const BACKEND_URL = "https://swagger-tester-backend.onrender.com";
 
 const swaggerInput = document.getElementById("swaggerUrl");
 const loadBtn = document.getElementById("loadSwagger");
@@ -108,3 +108,4 @@ function updateTimeline(result) {
   }
 };
 }
+
