@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: swagger-tester-backend
+    env: node
+    rootDir: Node-backend
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health

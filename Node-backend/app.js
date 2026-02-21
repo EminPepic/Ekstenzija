@@ -8,6 +8,10 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+app.get("/health", (req, res) => {
+  res.json({ ok: true });
+});
+
 const payloads = [
   { type: "SQL Injection", data: "' OR '1'='1" },
   { type: "XSS", data: "<script>alert('XSS')</script>" },
