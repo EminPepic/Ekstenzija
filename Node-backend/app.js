@@ -20,6 +20,39 @@ const payloads = [
   { type: "Command Injection", data: "; ls -la" },
 ];
 
+function evaluateSecurityResult(payload, response, dataStr) {
+  // Security tests pass only when malicious input is rejected.
+  if (typeof payload.data === "string" && dataStr.includes(payload.data)) {
+    return {
+      status: "Failed",
+      note: "Server je obradio stetan payload koji nije smio da obradi (reflektovan odgovor).",
+      responseMessage: "Doslo je do greske: stetan payload je prosao.",
+    };
+  }
+
+  if (response.status >= 400 && response.status < 500) {
+    return {
+      status: "Passed",
+      note: "Server je odbio stetan test (4xx) i to je ispravno.",
+      responseMessage: "Stetan payload je blokiran.",
+    };
+  }
+
+  if (response.status >= 500) {
+    return {
+      status: "Failed",
+      note: "Doslo je do greske servera (5xx) pri obradi stetnog testa.",
+      responseMessage: "Test pada: server je pao na stetnom payload-u.",
+    };
+  }
+
+  return {
+    status: "Failed",
+    note: "Server je obradio stetan payload koji nije smio da obradi.",
+    responseMessage: "Doslo je do greske: stetan payload je prosao.",
+  };
+}
+
 app.post("/run-test", async (req, res) => {
   const { baseUrl, path, method } = req.body;
   if (!baseUrl || !path || !method) {
@@ -41,43 +74,15 @@ app.post("/run-test", async (req, res) => {
       const response = await fetch(baseUrl + path, options);
       const data = await response.json().catch(() => ({}));
 
-      let status = "Passed";
+      let status = "Failed";
       let note = "";
       let responseMessage = "";
-
       const dataStr = JSON.stringify(data);
+      const evaluation = evaluateSecurityResult(payload, response, dataStr);
 
-      if (payload.type === "XSS" && dataStr.includes(payload.data)) {
-        status = "Vulnerable";
-        note = "Payload reflektovan – moguća XSS ranjivost.";
-        responseMessage = "XSS payload je uspešno izvršen!";
-      }
-      if (payload.type === "Command Injection" && dataStr.includes(payload.data)) {
-        status = "Vulnerable";
-        note = "Payload reflektovan – moguća Command Injection ranjivost.";
-        responseMessage = "Command Injection payload je uspešno izvršen!";
-      }
-      if (payload.type === "SQL Injection" && dataStr.includes(payload.data)) {
-        status = "Vulnerable";
-        note = "Payload reflektovan – moguća SQL Injection ranjivost.";
-        responseMessage = "SQL Injection payload je uspešno izvršen!";
-      }
-      if (payload.type === "Large Input") {
-        status = response.ok ? "Passed" : "Failed";
-        note = "Test velikog input-a, proveriti obradu servera.";
-        responseMessage = response.ok ? "Server je obradio veliki input." : "Server nije obradio veliki input ispravno.";
-      }
-      if (payload.type === "NoSQL Injection") {
-        status = response.ok ? "Passed" : "Failed";
-        note = "NoSQL payload obrađen ili odbijen.";
-        responseMessage = response.ok ? "NoSQL payload je uspešno obrađen." : "NoSQL payload je odbijen.";
-      }
-
-      if (!note && !response.ok && response.status >= 500) {
-        note = "Server error: endpoint nije obradio payload, ne mora da znači ranjivost.";
-        responseMessage = "Greška servera pri obradi payload-a.";
-      }
-
+      status = evaluation.status;
+      note = evaluation.note;
+      responseMessage = evaluation.responseMessage;
       const truncatedResponse = JSON.stringify(data).length > 500
         ? JSON.stringify(data).slice(0, 500) + " ...[truncated]"
         : JSON.stringify(data);
