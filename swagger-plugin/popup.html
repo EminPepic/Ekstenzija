@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="sr">
 <head>
   <meta charset="UTF-8">
@@ -7,19 +7,30 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h2>Swagger Reader</h2>
+  <main class="popup">
+    <header class="hero">
+      <p class="kicker">API Security Assistant</p>
+      <h2>Swagger Reader</h2>
+      <p class="subtitle">Ucitaj dokumentaciju i pokreni sigurnosne testove.</p>
+    </header>
 
-  <label>Unesi Swagger URL:</label>
-  <input id="swaggerUrl" type="text" placeholder="https://petstore.swagger.io/v2/swagger.json">
-  <button id="loadSwagger">Ucitaj Swagger</button>
+    <section class="card controls">
+      <label for="swaggerUrl">Unesi Swagger URL</label>
+      <input id="swaggerUrl" type="text" placeholder="https://petstore.swagger.io/v2/swagger.json">
+      <button id="loadSwagger">Ucitaj Swagger</button>
+    </section>
 
-  <div id="output" style="margin-top: 15px;"></div>
+    <section id="output" class="card output"></section>
 
-  <div id="timeline" style="margin-top: 20px; display: none;">
-    <h3>Timeline Testiranja</h3>
-    <ul id="timelineList"></ul>
-    <button id="backBtn" style="margin-top: 10px;">Nazad</button>
-  </div>
+    <section id="timeline" class="card timeline" style="display: none;">
+      <h3>Timeline Testiranja</h3>
+      <ul id="timelineList"></ul>
+      <button id="backBtn">Nazad</button>
+    </section>
+  </main>
+
+  <div class="bg-orb orb-a" aria-hidden="true"></div>
+  <div class="bg-orb orb-b" aria-hidden="true"></div>
 
   <script src="popup.js"></script>
 </body>

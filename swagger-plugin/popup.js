@@ -140,6 +140,7 @@ function showEndpoints(swagger) {
   }
 
   html += "</ul>";
+  output.style.display = "block";
   output.innerHTML = html;
   timeline.style.display = "none";
   backBtn.style.display = "none";
@@ -157,7 +158,8 @@ async function runTest(path, method) {
   }
 
   const endpointContext = getEndpointContext(currentSwagger, path, method);
-  output.innerHTML = "Testiranje u toku...";
+  output.style.display = "block";
+  output.innerHTML = 'Testiranje u toku<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
 
   try {
     const response = await fetch(`${BACKEND_URL}/run-test`, {
@@ -178,6 +180,7 @@ function updateTimeline(result) {
 
   if (!report) {
     timelineList.innerHTML = "Nema report podataka.";
+    output.style.display = "none";
     timeline.style.display = "block";
     backBtn.style.display = "block";
     return;
@@ -226,6 +229,7 @@ function updateTimeline(result) {
   });
 
   timelineList.innerHTML = html;
+  output.style.display = "none";
   timeline.style.display = "block";
   backBtn.style.display = "block";
 
