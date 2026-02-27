@@ -1,10 +1,6 @@
 :root {
-  --bg: #f6f5f2;
-  --bg-glow: #e8e4da;
+  --bg: #edf4f7;
   --card: rgba(255, 255, 255, 0.92);
-  --card-soft: #fbfaf7;
-  --card-soft-2: #f7faf6;
-  --card-soft-3: #f8f9f6;
   --text: #263238;
   --muted: #66757d;
   --accent: #2f7d6c;
@@ -24,9 +20,9 @@ body {
   padding: 14px;
   color: var(--text);
   background:
-    radial-gradient(160px 120px at 12% 0%, rgba(47, 125, 108, 0.08), transparent 72%),
-    radial-gradient(220px 140px at 90% 10%, rgba(146, 167, 139, 0.09), transparent 75%),
-    linear-gradient(140deg, var(--bg) 0%, #f2f3ef 100%);
+    radial-gradient(160px 120px at 12% 0%, rgba(31, 119, 180, 0.08), transparent 72%),
+    radial-gradient(220px 140px at 90% 10%, rgba(87, 144, 168, 0.1), transparent 75%),
+    linear-gradient(140deg, var(--bg) 0%, #e7f0f4 100%);
   position: relative;
   border-radius: 24px;
   overflow: hidden;
@@ -87,6 +83,8 @@ h2 {
 .timeline {
   background: linear-gradient(160deg, #f8fbf7 0%, #ffffff 100%);
   border-color: #d0dfd3;
+  min-height: 44px;
+  overflow: hidden;
 }
 
 label {
@@ -138,11 +136,6 @@ button:hover {
 
 button:active {
   transform: translateY(0);
-}
-
-.timeline {
-  min-height: 44px;
-  overflow: hidden;
 }
 
 .output:empty {

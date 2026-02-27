@@ -105,7 +105,6 @@ function getEndpointContext(swagger, path, method) {
   const pathItem = swagger.paths[path] || {};
   const operation = pathItem[method] || {};
   const allParams = [...(pathItem.parameters || []), ...(operation.parameters || [])];
-  const consumes = operation.consumes || swagger.consumes || [];
 
   const queryParams = allParams.filter((p) => p.in === "query").map((p) => p.name);
   const formDataParams = allParams.filter((p) => p.in === "formData").map((p) => ({ name: p.name, type: p.type || "string" }));
@@ -127,7 +126,7 @@ function getEndpointContext(swagger, path, method) {
     pathParamValues[p.name] = p.name.toLowerCase().includes("id") ? "1" : "test";
   });
 
-  return { queryParams, bodyFields, pathParamValues, bodyTemplate, injectFieldPath, consumes, formDataParams };
+  return { queryParams, bodyFields, pathParamValues, bodyTemplate, injectFieldPath, formDataParams };
 }
 
 function showEndpoints(swagger) {
@@ -186,7 +185,6 @@ function updateTimeline(result) {
     return;
   }
 
-  // Performance podaci (Autocannon)
   const perf = report.performance || {};
   let perfHtml = `
     <ul>
