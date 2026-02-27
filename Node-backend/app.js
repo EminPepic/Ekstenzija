@@ -23,17 +23,23 @@ const testsByMode = {
     { type: "Path Large Numeric", value: "9".repeat(500) }
   ],
   body: [
-    { type: "Body Type Mismatch", value: "this-should-be-an-object" },
-    { type: "Body Missing Required Fields", value: {} },
-    { 
-      type: "Body Invalid Field Types",
-      value: { id: "not-a-number", email: 12345, active: "yes", createdAt: "not-a-date" }
+    {
+      type: "Body SQLi In User Field",
+      value: "admin' OR '1'='1' --"
+    },
+    {
+      type: "Body XSS Script Payload",
+      value: "<script>alert('xss')</script>"
+    },
+    {
+      type: "Body Overlong Suspicious Input",
+      value: "A".repeat(4096) + "../etc/passwd%00"
     }
   ],
   form: [
-    { type: "Form SQLi Extended", value: "'; DROP TABLE users; --" },
-    { type: "Form Encoded XSS", value: "%3Cimg%20src=x%20onerror=alert(1)%3E" },
-    { type: "Form Long Field Stress", value: "B".repeat(6000) }
+    { type: "Form SQLi In Field", value: "test' UNION SELECT null,null --" },
+    { type: "Form HTML/JS Injection", value: "<img src=x onerror=alert(1)>" },
+    { type: "Form Overlong + Traversal", value: "B".repeat(3000) + "..%2f..%2fwindows%2fwin.ini%00" }
   ]
 };
 
@@ -151,6 +157,8 @@ function runAutocannon(options) {
         res.timeouts = res.timeouts || 0;
         res.latency = res.latency || {};
         res.requests = res.requests || {};
+        res.throughput = res.throughput || {};
+        res.bytes = res.bytes || {};
         resolve(res);
       }
     });
@@ -211,13 +219,26 @@ app.post("/run-test", async (req, res) => {
   }
 
   // Load test
-  const firstTest = tests[0];
+  const firstTest = tests[0] || { value: "test" };
+  const loadPathValues = { ...basePathParams };
+  if (mode === "path") {
+    const firstPathKey = Object.keys(loadPathValues)[0];
+    if (firstPathKey) loadPathValues[firstPathKey] = firstTest.value;
+  }
+  const loadResolvedPath = resolvePath(path, loadPathValues);
+  const loadTargetUrl = buildUrl(
+    baseUrl,
+    loadResolvedPath,
+    mode === "query" ? endpointContext?.queryParams || [] : [],
+    firstTest.value
+  );
   const options = buildRequest(normalizedMethod, mode, firstTest.value, endpointContext);
   const loadOpts = {
-    url: baseTargetUrl,
+    url: loadTargetUrl,
     method: normalizedMethod,
     connections: normalizedMethod === "GET" ? 20 : 8,
     duration: 5,
+    timeout: 10,
     headers: options.headers || {},
     body: options.body || undefined,
   };
@@ -226,7 +247,7 @@ app.post("/run-test", async (req, res) => {
   try {
     load = await runAutocannon(loadOpts);
   } catch (err) {
-    load = { latency: {}, requests: {}, errors: 1, timeouts: 0, bytes: {} };
+    load = { latency: {}, requests: {}, throughput: {}, bytes: {}, errors: 1, timeouts: 0 };
   }
 
   const passed = results.filter((item) => item.status === "Passed").length;
@@ -245,7 +266,11 @@ app.post("/run-test", async (req, res) => {
       latencyP90: (load.latency?.p90 || 0).toFixed(2),
       latencyP99: (load.latency?.p99 || 0).toFixed(2),
       requestsPerSec: (load.requests?.average || 0).toFixed(2),
+      throughputKbPerSec: ((load.throughput?.average || 0) / 1024).toFixed(2),
       totalRequests: load.requests?.total || 0,
+      status2xx: load["2xx"] || 0,
+      status4xx: load["4xx"] || 0,
+      status5xx: load["5xx"] || 0,
       errorCount: load.errors ?? 0,
       timeouts: load.timeouts ?? 0,
       totalBytes: load.bytes?.total || 0
