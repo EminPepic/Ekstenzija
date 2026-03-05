@@ -1,0 +1,37 @@
+{
+  "name": "Plugin <-> Backend API",
+  "version": "1.0",
+  "endpoints": {
+    "/run-test": {
+      "method": "POST",
+      "description": "Trigger a set of security + lightweight load tests for a single endpoint.",
+      "request": {
+        "content-type": "application/json",
+        "body": {
+          "baseUrl": "string (required) - full base URL, http(s) scheme",
+          "path": "string (required) - endpoint path including path params (e.g. /pet/{id})",
+          "method": "string (required) - HTTP method (GET, POST, PUT, ...)",
+          "endpointContext": "object (optional) - metadata extracted from OpenAPI (query params, pathParamValues, bodyTemplate, formDataParams)"
+        }
+      },
+      "response": {
+        "content-type": "application/json",
+        "body": {
+          "status": "string - e.g. 'Zavrseno'",
+          "report": "object - generated report (title, generatedAt, endpoint, summary, performance, findings)",
+          "avgLatency": "number",
+          "requestsPerSec": "number",
+          "totalRequests": "number",
+          "errorCount": "number",
+          "timeoutCount": "number",
+          "securityResults": "array - individual test results"
+        }
+      },
+      "notes": [
+        "Backend validates and sanitizes incoming fields: baseUrl must be http/https and reasonable length.",
+        "endpointContext is sanitized; large or deeply nested templates are truncated for safety.",
+        "The backend sends generated payloads to the target service — the target service may still reflect payloads in responses."
+      ]
+    }
+  }
+}

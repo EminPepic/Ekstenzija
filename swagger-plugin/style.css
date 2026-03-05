@@ -208,6 +208,131 @@ li:hover {
   background: linear-gradient(160deg, #f2f8f3 0%, #fcfffd 100%);
 }
 
+.report-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.report-head {
+  padding: 10px;
+  border: 1px solid #d7e5d9;
+  border-radius: 10px;
+  background: linear-gradient(160deg, #f6fbf7 0%, #ffffff 100%);
+}
+
+.report-head h4 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.report-head p {
+  margin: 3px 0;
+  font-size: 12px;
+}
+
+.report-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.report-card {
+  padding: 10px;
+  border: 1px solid #d7e5d9;
+  border-radius: 10px;
+  background: linear-gradient(160deg, #f9fcf9 0%, #ffffff 100%);
+}
+
+.report-card h5 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.report-card p {
+  margin: 4px 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.analysis-report {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #d4e1d5;
+  border-radius: 10px;
+  background: linear-gradient(160deg, #f5faf6 0%, #ffffff 100%);
+}
+
+.analysis-report h4 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.analysis-report p {
+  margin: 0;
+  line-height: 1.45;
+  color: #314842;
+  font-size: 12.5px;
+}
+
+.analysis-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+  margin-bottom: 8px;
+}
+
+.analysis-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #b7cec0;
+  background: #ecf5ef;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.analysis-recommendations {
+  margin-top: 6px;
+  padding-left: 16px;
+  list-style: disc;
+}
+
+.analysis-recommendations li {
+  margin: 4px 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.findings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.finding-item {
+  padding: 8px;
+  border: 1px solid #d8e4da;
+  border-radius: 8px;
+  background: #fdfefe;
+}
+
+.finding-item p {
+  margin: 3px 0;
+}
+
+.finding-item details {
+  margin-top: 6px;
+}
+
+.finding-item summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  color: #24564b;
+}
+
 .endpoint-btn {
   margin-top: 0;
   text-align: left;

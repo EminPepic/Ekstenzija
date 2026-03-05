@@ -1,5 +1,7 @@
 ﻿let currentSwagger = null;
 const BACKEND_URL = "http://localhost:3000";
+const _lastRuns = {};
+const _maxRunsPerMinute = 2;
 
 const swaggerInput = document.getElementById("swaggerUrl");
 const loadBtn = document.getElementById("loadSwagger");
@@ -156,6 +158,22 @@ async function runTest(path, method) {
     return;
   }
 
+  // Rate-limit: allow a small number of runs per minute per endpoint
+  try {
+    const key = `${baseUrl}|${path}|${method}`;
+    const now = Date.now();
+    _lastRuns[key] = _lastRuns[key] || [];
+    // remove older than 60s
+    _lastRuns[key] = _lastRuns[key].filter((t) => now - t < 60000);
+    if (_lastRuns[key].length >= _maxRunsPerMinute) {
+      output.innerHTML = "Ogranicenje: presli ste dozvoljeni broj pokretanja za ovaj endpoint (max per minute). Pokusajte kasnije.";
+      return;
+    }
+    _lastRuns[key].push(now);
+  } catch (e) {
+    // non-fatal
+  }
+
   const endpointContext = getEndpointContext(currentSwagger, path, method);
   output.style.display = "block";
   output.innerHTML = 'Testiranje u toku<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
@@ -186,47 +204,81 @@ function updateTimeline(result) {
   }
 
   const perf = report.performance || {};
-  let perfHtml = `
-    <ul>
-      <li><strong>Avg latency:</strong> ${escapeHtml(perf.avgLatencyMs ?? 'N/A')} ms</li>
-      <li><strong>Latency P50:</strong> ${escapeHtml(perf.latencyP50 ?? 'N/A')} ms</li>
-      <li><strong>Latency P90:</strong> ${escapeHtml(perf.latencyP90 ?? 'N/A')} ms</li>
-      <li><strong>Latency P99:</strong> ${escapeHtml(perf.latencyP99 ?? 'N/A')} ms</li>
-      <li><strong>Requests/sec:</strong> ${escapeHtml(perf.requestsPerSec ?? 'N/A')}</li>
-      <li><strong>Total requests:</strong> ${escapeHtml(perf.totalRequests ?? 'N/A')}</li>
-      <li><strong>Errors:</strong> ${escapeHtml(perf.errorCount ?? 'N/A')}</li>
-      <li><strong>Timeouts:</strong> ${escapeHtml(perf.timeouts ?? 'N/A')}</li>
-      <li><strong>Total bytes transferred:</strong> ${escapeHtml(perf.totalBytes ?? 'N/A')}</li>
-    </ul>
+  const findingsHtml = (report.findings || [])
+    .map((finding) => `
+      <article class="finding-item">
+        <p><strong>Test:</strong> ${escapeHtml(finding.testType)}</p>
+        <p><strong>Status:</strong> ${escapeHtml(finding.status)}</p>
+        <p><strong>Napomena:</strong> ${escapeHtml(finding.note)}</p>
+        <p><strong>Poruka:</strong> ${escapeHtml(finding.message)}</p>
+        <p><strong>HTTP status:</strong> ${escapeHtml(finding.statusCode ?? "N/A")}</p>
+        <p><strong>Vrijeme:</strong> ${escapeHtml(new Date(finding.timestamp).toLocaleString())}</p>
+        <details>
+          <summary>Prikazi payload</summary>
+          <pre>${escapeHtml(finding.payload)}</pre>
+        </details>
+      </article>
+    `)
+    .join("");
+
+  const analysis = report.analysis || {};
+  const analysisSummary = analysis.summary || "Analiza nije dostupna.";
+  const recommendations = Array.isArray(analysis.recommendations) ? analysis.recommendations : [];
+  const cleanConclusion = String(analysis.conclusion || analysisSummary).replace(/^Zakljucak:\s*/i, "");
+  const interpretation = [analysis.securityAssessment, analysis.performanceAssessment]
+    .filter((item) => typeof item === "string" && item.trim().length > 0)
+    .join(" ");
+  const recommendationsHtml = recommendations.length
+    ? `<ul class="analysis-recommendations">${recommendations.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}</ul>`
+    : "<p>Nema dodatnih preporuka.</p>";
+
+  timelineList.innerHTML = `
+    <section class="report-shell">
+      <header class="report-head">
+        <h4>${escapeHtml(report.title)}</h4>
+        <p><strong>Endpoint:</strong> ${escapeHtml(report.endpoint.url)}</p>
+        <p><strong>Metoda:</strong> ${escapeHtml(report.endpoint.method)}</p>
+        <p><strong>Generisano:</strong> ${escapeHtml(new Date(report.generatedAt).toLocaleString())}</p>
+      </header>
+
+      <section class="report-grid">
+        <article class="report-card">
+          <h5>Security sazetak</h5>
+          <p><strong>Ukupno testova:</strong> ${escapeHtml(report.summary.totalTests)}</p>
+          <p><strong>Proslo:</strong> ${escapeHtml(report.summary.passed)}</p>
+          <p><strong>Palo:</strong> ${escapeHtml(report.summary.failed)}</p>
+          <p><strong>Security score:</strong> ${escapeHtml(report.summary.securityScore)}%</p>
+          <p><strong>Risk level:</strong> ${escapeHtml(report.summary.riskLevel)}</p>
+        </article>
+
+        <article class="report-card">
+          <h5>Performance</h5>
+          <p><strong>Avg latency:</strong> ${escapeHtml(perf.avgLatencyMs ?? "N/A")} ms</p>
+          <p><strong>P50/P90/P99:</strong> ${escapeHtml(perf.latencyP50 ?? "N/A")} / ${escapeHtml(perf.latencyP90 ?? "N/A")} / ${escapeHtml(perf.latencyP99 ?? "N/A")} ms</p>
+          <p><strong>Requests/sec:</strong> ${escapeHtml(perf.requestsPerSec ?? "N/A")}</p>
+          <p><strong>Errors/Timeouts:</strong> ${escapeHtml(perf.errorCount ?? "N/A")} / ${escapeHtml(perf.timeouts ?? "N/A")}</p>
+        </article>
+      </section>
+
+      <section class="report-card">
+        <h5>Analiza rezultata (Automatska)</h5>
+        <div class="analysis-grid">
+          <p><strong>Naslov:</strong> ${escapeHtml(analysis.headline || "N/A")}</p>
+          <p><strong>Sigurnost:</strong> ${escapeHtml(analysis.securityLevel || "N/A")}</p>
+          <p><strong>Performanse:</strong> ${escapeHtml(analysis.performanceLevel || "N/A")}</p>
+        </div>
+        <p><strong>Interpretacija:</strong> ${escapeHtml(interpretation || analysisSummary)}</p>
+        <div><strong>Preporuke:</strong>${recommendationsHtml}</div>
+        <p><strong>Zakljucak:</strong> ${escapeHtml(cleanConclusion)}</p>
+      </section>
+
+      <section class="report-card">
+        <h5>Detaljni nalazi</h5>
+        <div class="findings-list">${findingsHtml || "<p>Nema nalaza.</p>"}</div>
+      </section>
+    </section>
   `;
 
-  let html = `<li>
-      <strong>${escapeHtml(report.title)}</strong><br>
-      <strong>Endpoint:</strong> ${escapeHtml(report.endpoint.url)}<br>
-      <strong>Metoda:</strong> ${escapeHtml(report.endpoint.method)}<br>
-      <strong>Generisano:</strong> ${escapeHtml(new Date(report.generatedAt).toLocaleString())}<br>
-      <strong>Ukupno testova:</strong> ${escapeHtml(report.summary.totalTests)}<br>
-      <strong>Proslo:</strong> ${escapeHtml(report.summary.passed)}<br>
-      <strong>Palo:</strong> ${escapeHtml(report.summary.failed)}<br>
-      <strong>Security score:</strong> ${escapeHtml(report.summary.securityScore)}%<br>
-      <strong>Risk level:</strong> ${escapeHtml(report.summary.riskLevel)}<br>
-      <strong>Performance detalji:</strong>${perfHtml}
-    </li><hr>`;
-
-  report.findings.forEach((finding) => {
-    html += `<li>
-      <strong>Test:</strong> ${escapeHtml(finding.testType)}<br>
-      <strong>Status:</strong> ${escapeHtml(finding.status)}<br>
-      <strong>Napomena:</strong> ${escapeHtml(finding.note)}<br>
-      <strong>Payload:</strong><pre>${escapeHtml(finding.payload)}</pre>
-      <strong>Poruka:</strong> ${escapeHtml(finding.message)}<br>
-      <strong>HTTP status:</strong> ${escapeHtml(finding.statusCode ?? "N/A")}<br>
-      <strong>URL:</strong> ${escapeHtml(finding.url)}<br>
-      <strong>Vrijeme:</strong> ${escapeHtml(new Date(finding.timestamp).toLocaleString())}
-    </li><hr>`;
-  });
-
-  timelineList.innerHTML = html;
   output.style.display = "none";
   timeline.style.display = "block";
   backBtn.style.display = "block";

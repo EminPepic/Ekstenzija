@@ -2,12 +2,60 @@ const express = require("express");
 const cors = require("cors");
 const fetch = require("node-fetch");
 const autocannon = require("autocannon");
+const rateLimit = require("express-rate-limit");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+let activeTests = 0;
+const MAX_ACTIVE_TESTS = 2; 
+
+const runTestLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minuta
+  max: 5,              // max 5 testova po minuti po IP
+  message: { error: "Previše zahtjeva. Pokušaj kasnije." }
+});
+
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "100kb" }));
+
+function sanitizeString(s, maxLen = 1024) {
+  if (s === null || s === undefined) return "";
+  if (typeof s !== "string") s = String(s);
+  let t = s.replace(/\0/g, "").replace(/[\x00-\x1F\x7F]/g, "").trim();
+  t = t.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  if (t.length > maxLen) t = t.slice(0, maxLen);
+  return t;
+}
+
+function sanitizeObject(obj, depth = 0) {
+  if (depth > 5 || obj === null || obj === undefined) return obj;
+  if (typeof obj === "string") return sanitizeString(obj, 2048);
+  if (typeof obj === "number" || typeof obj === "boolean") return obj;
+  if (Array.isArray(obj)) return obj.slice(0, 100).map((v) => sanitizeObject(v, depth + 1));
+  if (typeof obj === "object") {
+    const out = {};
+    for (const k of Object.keys(obj)) {
+      if (out && out[k] !== undefined) continue;
+      try {
+        out[k] = sanitizeObject(obj[k], depth + 1);
+      } catch (e) {
+        out[k] = null;
+      }
+    }
+    return out;
+  }
+  return obj;
+}
+
+function isValidUrl(s) {
+  try {
+    const u = new URL(s);
+    return ["http:", "https:"].includes(u.protocol) && s.length <= 2048;
+  } catch (e) {
+    return false;
+  }
+}
 app.get("/health", (req, res) => res.json({ ok: true }));
 
 const testsByMode = {
@@ -86,15 +134,16 @@ function buildMultipartBody(formParams, value) {
   const lines = [];
   const fields = formParams || [];
   fields.forEach((field, idx) => {
-    const currentValue = idx === 0 ? value : "test";
+    const currentValue = sanitizeString(idx === 0 ? value : "test", 4096);
+    const safeName = sanitizeString(field?.name || "field", 128).replace(/[^a-zA-Z0-9_\-\.]/g, "_");
     lines.push(`--${boundary}`);
     if (field.type === "file") {
-      lines.push(`Content-Disposition: form-data; name="${field.name}"; filename="test.txt"`);
+      lines.push(`Content-Disposition: form-data; name="${safeName}"; filename="test.txt"`);
       lines.push("Content-Type: text/plain");
       lines.push("");
       lines.push(String(currentValue));
     } else {
-      lines.push(`Content-Disposition: form-data; name="${field.name}"`);
+      lines.push(`Content-Disposition: form-data; name="${safeName}"`);
       lines.push("");
       lines.push(String(currentValue));
     }
@@ -162,145 +211,311 @@ function runAutocannon(options) {
   });
 }
 
-app.post("/run-test", async (req, res) => {
-  const { baseUrl, path, method, endpointContext } = req.body;
-  if (!baseUrl || !path || !method) return res.status(400).json({ error: "Nedostaju parametri" });
+function pickPhrase(list, seed) {
+  if (!Array.isArray(list) || list.length === 0) return "";
+  return list[Math.abs(seed) % list.length];
+}
 
-  const normalizedMethod = method.toUpperCase();
-  const mode = chooseMode(normalizedMethod, endpointContext);
-  const tests = testsByMode[mode] || testsByMode.body;
-  const basePathParams = endpointContext?.pathParamValues || {};
-  const defaultPath = resolvePath(path, basePathParams);
-  const baseTargetUrl = joinUrl(baseUrl, defaultPath);
-  const results = [];
+function generateAnalysisSummary({ summary, performance, findings }) {
+  const failed = Number(summary?.failed || 0);
+  const total = Number(summary?.totalTests || 0);
+  const securityScore = Number(summary?.securityScore || 0);
+  const avgLatency = Number(performance?.avgLatencyMs || 0);
+  const p99 = Number(performance?.latencyP99 || 0);
+  const reqPerSec = Number(performance?.requestsPerSec || 0);
+  const errorCount = Number(performance?.errorCount || 0);
+  const totalRequests = Number(performance?.totalRequests || 0);
+  const errorRate = totalRequests > 0 ? ((errorCount / totalRequests) * 100) : 0;
+  const findingsList = Array.isArray(findings) ? findings : [];
 
-  for (const test of tests) {
-    try {
-      const pathValues = { ...basePathParams };
-      if (mode === "path") {
-        const firstPathKey = Object.keys(pathValues)[0];
-        if (firstPathKey) pathValues[firstPathKey] = test.value;
-      }
+  let securityLevel = "Low";
+  if (failed > 0) securityLevel = "High";
+  else if (securityScore < 100) securityLevel = "Medium";
 
-      const resolvedPath = resolvePath(path, pathValues);
-      const targetUrl = buildUrl(baseUrl, resolvedPath, mode === "query" ? endpointContext?.queryParams || [] : [], test.value);
-      const options = buildRequest(normalizedMethod, mode, test.value, endpointContext);
-      const response = await fetch(targetUrl, options);
-      const text = await response.text().catch(() => "");
-      const verdict = evaluate(test.value, response, text);
+  let performanceLevel = "Good";
+  if (p99 >= 1200 || errorRate >= 1.0) performanceLevel = "Poor";
+  else if (p99 >= 500 || avgLatency >= 250 || reqPerSec < 8) performanceLevel = "Moderate";
 
-      results.push({
-        type: test.type,
-        payload: test.value,
-        status: verdict.status,
-        note: verdict.note,
-        response: { message: verdict.message, raw: text, statusCode: response.status },
-        timestamp: new Date().toISOString(),
-        url: targetUrl,
-        method: normalizedMethod,
-      });
-    } catch (err) {
-      results.push({
-        type: test.type,
-        payload: test.value,
-        status: "Failed",
-        note: "Greska pri konekciji ili obradi payload-a.",
-        response: { message: err.message, raw: "", statusCode: null },
-        timestamp: new Date().toISOString(),
-        url: baseTargetUrl,
-        method: normalizedMethod,
-      });
-    }
-  }
+  let priority = "Nizak";
+  if (securityLevel === "High" || performanceLevel === "Poor") priority = "Visok";
+  else if (securityLevel === "Medium" || performanceLevel === "Moderate") priority = "Srednji";
 
-  const firstTest = tests[0] || { value: "test" };
-  const loadPathValues = { ...basePathParams };
-  if (mode === "path") {
-    const firstPathKey = Object.keys(loadPathValues)[0];
-    if (firstPathKey) loadPathValues[firstPathKey] = firstTest.value;
-  }
+  const failedByType = {
+    sql: findingsList.filter((f) => f?.status === "Failed" && /sqli|sql/i.test(String(f?.testType || ""))).length,
+    xss: findingsList.filter((f) => f?.status === "Failed" && /xss|script|html/i.test(String(f?.testType || ""))).length,
+    overlong: findingsList.filter((f) => f?.status === "Failed" && /overlong|long|traversal|path/i.test(String(f?.testType || ""))).length,
+  };
 
-  const loadResolvedPath = resolvePath(path, loadPathValues);
-  const loadTargetUrl = buildUrl(
-    baseUrl,
-    loadResolvedPath,
-    mode === "query" ? endpointContext?.queryParams || [] : [],
-    firstTest.value
+  const seed = failed * 13 + Math.round(p99) + Math.round(reqPerSec * 3);
+  const headline = pickPhrase(
+    securityLevel === "High"
+      ? [
+          "Kriticna sigurnosna odstupanja detektovana",
+          "Sigurnosni rizik je trenutno visok",
+          "Endpoint zahtijeva hitno hardening unapredjenje",
+        ]
+      : [
+          "Sigurnosni profil endpointa je stabilan",
+          "Nisu detektovana kriticna sigurnosna odstupanja",
+          "Endpoint prolazi osnovne sigurnosne provjere",
+        ],
+    seed
   );
 
-  const options = buildRequest(normalizedMethod, mode, firstTest.value, endpointContext);
-  const loadOpts = {
-    url: loadTargetUrl,
-    method: normalizedMethod,
-    connections: normalizedMethod === "GET" ? 20 : 8,
-    duration: 5,
-    timeout: 10,
-    headers: options.headers || {},
-    body: options.body || undefined,
-  };
+  const securityAssessment =
+    failed > 0
+      ? pickPhrase(
+          [
+            "Detektovana je izlozenost nefiltriranom unosu, sa najizrazenijim rizikom kroz SQLi/XSS obrasce.",
+            "Validacija ulaza trenutno nije dovoljna i endpoint pokazuje povecan sigurnosni rizik.",
+            "Uoceni su propusti u sanitizaciji i obradi ulaza, sto zahtijeva korektivne mjere.",
+          ],
+          seed + failedByType.sql + failedByType.xss
+        )
+      : pickPhrase(
+          [
+            "Nisu uocena kriticna sigurnosna odstupanja u pokrivenim scenarijima testiranja.",
+            "Endpoint pokazuje stabilan sigurnosni profil za izvedene testne slucajeve.",
+            "Osnovne sigurnosne kontrole djeluju konzistentno u ovom ciklusu testiranja.",
+          ],
+          seed + 3
+        );
 
-  let load;
-  try {
-    load = await runAutocannon(loadOpts);
-  } catch (err) {
-    load = { latency: {}, requests: {}, throughput: {}, bytes: {}, errors: 1, timeouts: 0 };
+  const performanceAssessment =
+    performanceLevel === "Poor"
+      ? pickPhrase(
+          [
+            "Performanse su nestabilne pod opterecenjem i prisutna je izrazenija varijacija odziva.",
+            "Uocena je degradacija kvaliteta odziva pri opterecenju, posebno u vrsnim momentima.",
+            "Profil performansi ukazuje na potrebu optimizacije zbog slabije stabilnosti pod opterecenjem.",
+          ],
+          seed + 11
+        )
+      : performanceLevel === "Moderate"
+      ? pickPhrase(
+          [
+            "Performanse su prihvatljive, uz povremene oscilacije koje je preporuceno pratiti.",
+            "Servis je funkcionalno stabilan, ali postoji prostor za dodatnu optimizaciju odziva.",
+            "Stabilnost je srednja: bez kriticnih gresaka, uz preporuku za tuning performansi.",
+          ],
+          seed + 17
+        )
+      : pickPhrase(
+          [
+            "Performanse su stabilne i konzistentne za trenutni profil testnog opterecenja.",
+            "Odziv servisa je uredan i bez znacajne degradacije tokom testa.",
+            "Nema indikacija ozbiljnog uskog grla u performansama za ovaj scenario.",
+          ],
+          seed + 23
+        );
+
+  const recommendations = [];
+  if (failedByType.sql > 0) recommendations.push("Uvesti striktne validacije ulaza i server-side schema provjeru za body/query parametre.");
+  if (failedByType.xss > 0) recommendations.push("Onemoguciti refleksiju nestrukturisanog unosa i uvesti izlazno escapovanje u svim odgovorima.");
+  if (failedByType.overlong > 0) recommendations.push("Postaviti limit duzine payload-a i blokirati traversal pattern-e.");
+  if (performanceLevel !== "Good") recommendations.push("Smanjiti tail latency (P99) optimizacijom obrade i timeout politikom.");
+  if (recommendations.length === 0) recommendations.push("Nastaviti redovno testiranje i zadrzati postojeci nivo zastite.");
+
+  const conclusion = pickPhrase(
+    priority === "Visok"
+      ? [
+          "Preporucena je hitna korekcija prije sire upotrebe endpointa.",
+          "Potreban je prioritetan remediation plan za sigurnost i stabilnost.",
+          "Endpoint nije spreman bez dodatnih zastitnih mjera.",
+        ]
+      : [
+          "Stanje je upotrebljivo uz redovan monitoring i periodican retest.",
+          "Endpoint je stabilan, preporucen je nastavak kontinuiranog testiranja.",
+          "Trenutni rezultati su prihvatljivi uz standardne operativne kontrole.",
+        ],
+    seed + 7
+  );
+
+  const summaryText = `${headline}. ${securityAssessment} ${performanceAssessment} ${conclusion}`;
+
+  return {
+    headline,
+    priority,
+    securityLevel,
+    performanceLevel,
+    securityAssessment,
+    performanceAssessment,
+    recommendations: recommendations.slice(0, 3),
+    conclusion,
+    summary: summaryText,
+  };
+}
+
+app.post("/run-test", runTestLimiter, async (req, res) => {
+  if (activeTests >= MAX_ACTIVE_TESTS) {
+    return res.status(429).json({
+      error: "Previše aktivnih testova. Pokušaj kasnije."
+    });
   }
 
-  const passed = results.filter((item) => item.status === "Passed").length;
-  const failed = results.filter((item) => item.status === "Failed").length;
-  const totalTests = results.length;
-  const securityScore = totalTests === 0 ? 0 : Math.round((passed / totalTests) * 100);
-  const totalLoadRequests = load.requests?.total || 0;
-  const status2xx = load["2xx"] || 0;
-  const successRatePct = totalLoadRequests === 0 ? "0.00" : ((status2xx / totalLoadRequests) * 100).toFixed(2);
+  activeTests++;
 
-  const report = {
-    title: "API Security Test Report",
-    generatedAt: new Date().toISOString(),
-    endpoint: { url: baseTargetUrl, method: normalizedMethod },
-    summary: { totalTests, passed, failed, securityScore, riskLevel: failed > 0 ? "High" : "Low" },
-    performance: {
-      avgLatencyMs: (load.latency?.average || 0).toFixed(2),
-      latencyMinMs: (load.latency?.min || 0).toFixed(2),
-      latencyP50: (load.latency?.p50 || 0).toFixed(2),
-      latencyP90: (load.latency?.p90 || 0).toFixed(2),
-      latencyP99: (load.latency?.p99 || 0).toFixed(2),
-      latencyMaxMs: (load.latency?.max || 0).toFixed(2),
-      requestsPerSec: (load.requests?.average || 0).toFixed(2),
-      throughputKbPerSec: ((load.throughput?.average || 0) / 1024).toFixed(2),
-      totalRequests: totalLoadRequests,
-      status2xx: status2xx,
-      status4xx: load["4xx"] || 0,
-      status5xx: load["5xx"] || 0,
-      successRatePct: successRatePct,
+  try {
+    const raw = req.body || {};
+    const baseUrl = sanitizeString(raw.baseUrl || "", 2048);
+    const path = sanitizeString(raw.path || "", 1024);
+    const method = sanitizeString(raw.method || "", 10).toUpperCase();
+    const endpointContext = sanitizeObject(raw.endpointContext || {});
+
+    if (!baseUrl || !path || !method) return res.status(400).json({ error: "Nedostaju parametri" });
+    if (!isValidUrl(baseUrl)) return res.status(400).json({ error: "Nevalidan baseUrl" });
+    if (!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].includes(method)) return res.status(400).json({ error: "Nevalidna metoda" });
+
+    const normalizedMethod = method.toUpperCase();
+    const mode = chooseMode(normalizedMethod, endpointContext);
+    const tests = testsByMode[mode] || testsByMode.body;
+    const basePathParams = endpointContext?.pathParamValues || {};
+    const defaultPath = resolvePath(path, basePathParams);
+    const baseTargetUrl = joinUrl(baseUrl, defaultPath);
+    const results = [];
+
+    for (const test of tests) {
+      try {
+        const pathValues = { ...basePathParams };
+        if (mode === "path") {
+          const firstPathKey = Object.keys(pathValues)[0];
+          if (firstPathKey) pathValues[firstPathKey] = test.value;
+        }
+
+        const resolvedPath = resolvePath(path, pathValues);
+        const targetUrl = buildUrl(baseUrl, resolvedPath, mode === "query" ? endpointContext?.queryParams || [] : [], test.value);
+        const options = buildRequest(normalizedMethod, mode, test.value, endpointContext);
+        const response = await fetch(targetUrl, options);
+        const text = await response.text().catch(() => "");
+        const verdict = evaluate(test.value, response, text);
+
+        results.push({
+          type: test.type,
+          payload: test.value,
+          status: verdict.status,
+          note: verdict.note,
+          response: { message: verdict.message, raw: text, statusCode: response.status },
+          timestamp: new Date().toISOString(),
+          url: targetUrl,
+          method: normalizedMethod,
+        });
+      } catch (err) {
+        results.push({
+          type: test.type,
+          payload: test.value,
+          status: "Failed",
+          note: "Greska pri konekciji ili obradi payload-a.",
+          response: { message: err.message, raw: "", statusCode: null },
+          timestamp: new Date().toISOString(),
+          url: baseTargetUrl,
+          method: normalizedMethod,
+        });
+      }
+    }
+
+    const firstTest = tests[0] || { value: "test" };
+    const loadPathValues = { ...basePathParams };
+    if (mode === "path") {
+      const firstPathKey = Object.keys(loadPathValues)[0];
+      if (firstPathKey) loadPathValues[firstPathKey] = firstTest.value;
+    }
+
+    const loadResolvedPath = resolvePath(path, loadPathValues);
+    const loadTargetUrl = buildUrl(
+      baseUrl,
+      loadResolvedPath,
+      mode === "query" ? endpointContext?.queryParams || [] : [],
+      firstTest.value
+    );
+
+    const options = buildRequest(normalizedMethod, mode, firstTest.value, endpointContext);
+    const loadOpts = {
+      url: loadTargetUrl,
+      method: normalizedMethod,
+      connections: 3,
+      amount: 100,
+      timeout: 10,
+      headers: options.headers || {},
+      body: options.body || undefined,
+    };
+
+    let load;
+    try {
+      load = await runAutocannon(loadOpts);
+    } catch (err) {
+      load = { latency: {}, requests: {}, throughput: {}, bytes: {}, errors: 1, timeouts: 0 };
+    }
+
+    const passed = results.filter((item) => item.status === "Passed").length;
+    const failed = results.filter((item) => item.status === "Failed").length;
+    const totalTests = results.length;
+    const securityScore = totalTests === 0 ? 0 : Math.round((passed / totalTests) * 100);
+    const totalLoadRequests = load.requests?.total || 0;
+    const status2xx = load["2xx"] || 0;
+    const successRatePct = totalLoadRequests === 0 ? "0.00" : ((status2xx / totalLoadRequests) * 100).toFixed(2);
+
+    const report = {
+      title: "API Security Test Report",
+      generatedAt: new Date().toISOString(),
+      endpoint: { url: baseTargetUrl, method: normalizedMethod },
+      summary: { totalTests, passed, failed, securityScore, riskLevel: failed > 0 ? "High" : "Low" },
+      performance: {
+        avgLatencyMs: (load.latency?.average || 0).toFixed(2),
+        latencyMinMs: (load.latency?.min || 0).toFixed(2),
+        latencyP50: (load.latency?.p50 || 0).toFixed(2),
+        latencyP90: (load.latency?.p90 || 0).toFixed(2),
+        latencyP99: (load.latency?.p99 || 0).toFixed(2),
+        latencyMaxMs: (load.latency?.max || 0).toFixed(2),
+        requestsPerSec: (load.requests?.average || 0).toFixed(2),
+        throughputKbPerSec: ((load.throughput?.average || 0) / 1024).toFixed(2),
+        totalRequests: totalLoadRequests,
+        status2xx: status2xx,
+        status4xx: load["4xx"] || 0,
+        status5xx: load["5xx"] || 0,
+        successRatePct: successRatePct,
+        errorCount: load.errors ?? 0,
+        timeouts: load.timeouts ?? 0,
+        totalBytes: load.bytes?.total || 0,
+      },
+      findings: results.map((item) => ({
+        testType: item.type,
+        status: item.status,
+        note: item.note,
+        message: item.response.message,
+        statusCode: item.response.statusCode,
+        url: item.url,
+        timestamp: item.timestamp,
+        payload: item.payload,
+      })),
+    };
+    const ruleSummary = generateAnalysisSummary({
+      summary: report.summary,
+      performance: report.performance,
+      findings: report.findings,
+    });
+    report.analysis = {
+      ...ruleSummary,
+      source: "rules",
+    };
+
+    res.json({
+      report,
+      url: baseTargetUrl,
+      method: normalizedMethod,
+      avgLatency: load.latency?.average || 0,
+      requestsPerSec: load.requests?.average || 0,
+      totalRequests: load.requests?.total || 0,
       errorCount: load.errors ?? 0,
-      timeouts: load.timeouts ?? 0,
-      totalBytes: load.bytes?.total || 0,
-    },
-    findings: results.map((item) => ({
-      testType: item.type,
-      status: item.status,
-      note: item.note,
-      message: item.response.message,
-      statusCode: item.response.statusCode,
-      url: item.url,
-      timestamp: item.timestamp,
-      payload: item.payload,
-    })),
-  };
-
-  res.json({
-    report,
-    url: baseTargetUrl,
-    method: normalizedMethod,
-    avgLatency: load.latency?.average || 0,
-    requestsPerSec: load.requests?.average || 0,
-    totalRequests: load.requests?.total || 0,
-    errorCount: load.errors ?? 0,
-    timeoutCount: load.timeouts ?? 0,
-    securityResults: results,
-    status: "Zavrseno",
-  });
+      timeoutCount: load.timeouts ?? 0,
+      securityResults: results,
+      status: "Zavrseno",
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Greška na serveru." });
+  } finally {
+    activeTests--;
+  }
 });
 
 app.listen(PORT, () => console.log(`Backend radi na portu ${PORT}`));
