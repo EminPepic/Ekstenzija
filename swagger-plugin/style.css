@@ -144,6 +144,17 @@ input:disabled {
   cursor: not-allowed;
 }
 
+.secondary-btn {
+  margin-top: 8px;
+  background: linear-gradient(135deg, #3f8f5f 0%, #2e6f4a 100%);
+  box-shadow: 0 8px 16px rgba(46, 111, 74, 0.24);
+}
+
+.secondary-btn:hover {
+  background: linear-gradient(135deg, #377d53 0%, #285f3f 100%);
+  box-shadow: 0 10px 18px rgba(40, 95, 63, 0.30);
+}
+
 .output:empty {
   display: none;
 }
@@ -364,6 +375,12 @@ li:hover {
   background: #fff1f1;
   color: #a33030;
   border-color: #e8b0b0;
+}
+
+.status-pill.is-inconclusive {
+  background: #fff9e9;
+  color: #8a6400;
+  border-color: #e7cf8f;
 }
 
 .endpoint-btn {

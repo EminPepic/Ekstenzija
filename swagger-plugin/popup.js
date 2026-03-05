@@ -9,7 +9,9 @@ const output = document.getElementById("output");
 const timeline = document.getElementById("timeline");
 const timelineList = document.getElementById("timelineList");
 const backBtn = document.getElementById("backBtn");
+const downloadBtn = document.getElementById("downloadBtn");
 let isRunningTest = false;
+let lastResultForDownload = null;
 
 function escapeHtml(value) {
   return String(value)
@@ -19,6 +21,197 @@ function escapeHtml(value) {
     .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+function shortenText(value, maxLen = 220) {
+  const raw = String(value == null ? "" : value).replace(/\s+/g, " ").trim();
+  if (raw.length <= maxLen) return raw;
+  return `${raw.slice(0, maxLen)}...`;
+}
+
+function formatDetailedReport(result) {
+  const report = result?.report || {};
+  const perf = report.performance || {};
+  const summary = report.summary || {};
+  const analysis = report.analysis || {};
+  const endpoint = report.endpoint || {};
+  const findings = Array.isArray(report.findings) ? report.findings : [];
+  const lines = [];
+
+  lines.push("API SECURITY TEST REPORT - DETALJNI IZVJESTAJ");
+  lines.push("=".repeat(72));
+  lines.push(`Naziv izvjestaja: ${report.title || "N/A"}`);
+  lines.push(`Generisano: ${report.generatedAt ? new Date(report.generatedAt).toLocaleString() : "N/A"}`);
+  lines.push(`Endpoint: ${endpoint.url || "N/A"}`);
+  lines.push(`Metoda: ${endpoint.method || "N/A"}`);
+  lines.push("");
+
+  lines.push("SAZETAK");
+  lines.push("-".repeat(72));
+  lines.push(`Ukupno testova: ${summary.totalTests ?? "N/A"}`);
+  lines.push(`Proslo: ${summary.passed ?? "N/A"}`);
+  lines.push(`Palo: ${summary.failed ?? "N/A"}`);
+  lines.push(`Neodredjeno: ${summary.inconclusive ?? 0}`);
+  lines.push(`Security score: ${summary.securityScore ?? "N/A"}%`);
+  lines.push(`Risk level: ${summary.riskLevel ?? "N/A"}`);
+  lines.push("");
+
+  lines.push("PERFORMANCE");
+  lines.push("-".repeat(72));
+  lines.push(`Avg latency: ${perf.avgLatencyMs ?? "N/A"} ms`);
+  lines.push(`P50/P90/P99: ${perf.latencyP50 ?? "N/A"} / ${perf.latencyP90 ?? "N/A"} / ${perf.latencyP99 ?? "N/A"} ms`);
+  lines.push(`Requests/sec: ${perf.requestsPerSec ?? "N/A"}`);
+  lines.push(`Total requests: ${perf.totalRequests ?? "N/A"}`);
+  lines.push(`Errors: ${perf.errorCount ?? "N/A"}`);
+  lines.push(`Timeouts: ${perf.timeouts ?? "N/A"}`);
+  lines.push(`2xx/4xx/5xx: ${perf.status2xx ?? "N/A"} / ${perf.status4xx ?? "N/A"} / ${perf.status5xx ?? "N/A"}`);
+  lines.push("");
+
+  lines.push("ANALIZA");
+  lines.push("-".repeat(72));
+  lines.push(`Naslov: ${analysis.headline || "N/A"}`);
+  lines.push(`Sigurnost: ${analysis.securityLevel || "N/A"}`);
+  lines.push(`Performanse: ${analysis.performanceLevel || "N/A"}`);
+  lines.push(`Procjena sigurnosti: ${analysis.securityAssessment || "N/A"}`);
+  lines.push(`Procjena performansi: ${analysis.performanceAssessment || "N/A"}`);
+  lines.push(`Zakljucak: ${analysis.conclusion || analysis.summary || "N/A"}`);
+  lines.push("Preporuke:");
+  (analysis.recommendations || []).forEach((r, i) => lines.push(`  ${i + 1}. ${r}`));
+  lines.push("");
+
+  lines.push("DETALJNI NALAZI");
+  lines.push("-".repeat(72));
+  findings.forEach((finding, idx) => {
+    lines.push(`${idx + 1}) ${finding.testType || "N/A"}`);
+    lines.push(`   Status: ${finding.findingType || finding.status || "N/A"}`);
+    lines.push(`   Severity: ${finding.severity || "N/A"}`);
+    lines.push(`   Napomena: ${finding.note || "N/A"}`);
+    lines.push(`   Poruka: ${finding.message || "N/A"}`);
+    lines.push(`   HTTP status: ${finding.statusCode ?? "N/A"}`);
+    lines.push(`   URL: ${finding.url || "N/A"}`);
+    lines.push(`   Vrijeme: ${finding.timestamp ? new Date(finding.timestamp).toLocaleString() : "N/A"}`);
+    lines.push("   Payload:");
+    lines.push(`   ${shortenText(String(finding.payload || "").replace(/\r?\n/g, " "), 800)}`);
+    lines.push("   Odgovor servera:");
+    lines.push(`   ${shortenText(String(finding.rawResponse || "").replace(/\r?\n/g, " "), 2000) || "N/A"}`);
+    lines.push("");
+  });
+
+  return lines.join("\n");
+}
+
+function toAsciiForPdf(text) {
+  const map = {
+    "š": "s", "Š": "S", "đ": "dj", "Đ": "Dj", "č": "c", "Č": "C", "ć": "c", "Ć": "C", "ž": "z", "Ž": "Z",
+  };
+  return String(text || "")
+    .replace(/[šŠđĐčČćĆžŽ]/g, (ch) => map[ch] || ch)
+    .replace(/[^\x20-\x7E\r\n\t]/g, " ");
+}
+
+function wrapLine(line, maxLen = 95) {
+  const src = String(line || "");
+  if (src.length <= maxLen) return [src];
+  const out = [];
+  let current = src;
+  while (current.length > maxLen) {
+    let cut = current.lastIndexOf(" ", maxLen);
+    if (cut < Math.floor(maxLen * 0.6)) cut = maxLen;
+    out.push(current.slice(0, cut));
+    current = current.slice(cut).trimStart();
+  }
+  if (current.length) out.push(current);
+  return out;
+}
+
+function escapePdfText(text) {
+  return String(text || "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)");
+}
+
+function makePdfBlobFromText(text) {
+  const ascii = toAsciiForPdf(text);
+  const rawLines = ascii.split(/\r?\n/);
+  const wrapped = rawLines.flatMap((line) => wrapLine(line, 95));
+  const linesPerPage = 50;
+  const pages = [];
+
+  for (let i = 0; i < wrapped.length; i += linesPerPage) {
+    pages.push(wrapped.slice(i, i + linesPerPage));
+  }
+  if (pages.length === 0) pages.push([""]);
+
+  const objects = [];
+  let objId = 1;
+
+  const catalogId = objId++;
+  const pagesId = objId++;
+  const pageIds = [];
+  const contentIds = [];
+  const fontId = objId++;
+
+  pages.forEach(() => {
+    pageIds.push(objId++);
+    contentIds.push(objId++);
+  });
+
+  objects[catalogId] = `${catalogId} 0 obj\n<< /Type /Catalog /Pages ${pagesId} 0 R >>\nendobj\n`;
+
+  const kids = pageIds.map((id) => `${id} 0 R`).join(" ");
+  objects[pagesId] = `${pagesId} 0 obj\n<< /Type /Pages /Kids [ ${kids} ] /Count ${pageIds.length} >>\nendobj\n`;
+
+  objects[fontId] = `${fontId} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`;
+
+  pages.forEach((pageLines, index) => {
+    const pageId = pageIds[index];
+    const contentId = contentIds[index];
+    const safeLines = pageLines.length > 0 ? pageLines : [""];
+    const firstLine = `(${escapePdfText(safeLines[0])}) Tj`;
+    const restLines = safeLines
+      .slice(1)
+      .map((line) => `T*\n(${escapePdfText(line)}) Tj`)
+      .join("\n");
+    const stream = `BT\n/F1 10 Tf\n12 TL\n40 800 Td\n${firstLine}${restLines ? `\n${restLines}` : ""}\nET\n`;
+    objects[contentId] = `${contentId} 0 obj\n<< /Length ${stream.length} >>\nstream\n${stream}endstream\nendobj\n`;
+    objects[pageId] = `${pageId} 0 obj\n<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 595 842] /Contents ${contentId} 0 R /Resources << /Font << /F1 ${fontId} 0 R >> >> >>\nendobj\n`;
+  });
+
+  let pdf = "%PDF-1.4\n";
+  const offsets = [];
+  for (let i = 1; i < objects.length; i++) {
+    offsets[i] = pdf.length;
+    pdf += objects[i];
+  }
+
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length}\n`;
+  pdf += "0000000000 65535 f \n";
+  for (let i = 1; i < objects.length; i++) {
+    const off = String(offsets[i]).padStart(10, "0");
+    pdf += `${off} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Size ${objects.length} /Root ${catalogId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+
+  return new Blob([pdf], { type: "application/pdf" });
+}
+
+function downloadDetailedReport() {
+  if (!lastResultForDownload?.report) return;
+  const content = formatDetailedReport(lastResultForDownload);
+  const blob = makePdfBlobFromText(content);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  a.href = url;
+  a.download = `api-security-report-${stamp}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+downloadBtn.onclick = downloadDetailedReport;
 
 loadBtn.addEventListener("click", async () => {
   if (isRunningTest) return;
@@ -236,16 +429,15 @@ function updateTimeline(result) {
   const findingsHtml = (report.findings || [])
     .map((finding) => `
       <article class="finding-item">
-        <p><strong>Test:</strong> ${escapeHtml(finding.testType)}</p>
-        <p><strong>Status:</strong> <span class="status-pill ${String(finding.status).toLowerCase() === "passed" ? "is-passed" : "is-failed"}">${escapeHtml(finding.status)}</span></p>
-        <p><strong>Napomena:</strong> ${escapeHtml(finding.note)}</p>
-        <p><strong>Poruka:</strong> ${escapeHtml(finding.message)}</p>
-        <p><strong>HTTP status:</strong> ${escapeHtml(finding.statusCode ?? "N/A")}</p>
-        <p><strong>Vrijeme:</strong> ${escapeHtml(new Date(finding.timestamp).toLocaleString())}</p>
-        <details>
-          <summary>Prikazi payload</summary>
-          <pre>${escapeHtml(finding.payload)}</pre>
-        </details>
+        <p><strong>Test:</strong> ${escapeHtml(shortenText(finding.testType, 90))}</p>
+        <p><strong>Status:</strong> <span class="status-pill ${
+          String(finding.status).toLowerCase() === "passed"
+            ? "is-passed"
+            : String(finding.status).toLowerCase() === "inconclusive"
+            ? "is-inconclusive"
+            : "is-failed"
+        }">${escapeHtml(finding.findingType || finding.status)}</span></p>
+        <p><strong>Severity:</strong> ${escapeHtml(finding.severity || "N/A")}</p>
       </article>
     `)
     .join("");
@@ -258,7 +450,7 @@ function updateTimeline(result) {
     .filter((item) => typeof item === "string" && item.trim().length > 0)
     .join(" ");
   const recommendationsHtml = recommendations.length
-    ? `<ul class="analysis-recommendations">${recommendations.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}</ul>`
+    ? `<ul class="analysis-recommendations">${recommendations.slice(0, 2).map((r) => `<li>${escapeHtml(shortenText(r, 140))}</li>`).join("")}</ul>`
     : "<p>Nema dodatnih preporuka.</p>";
 
   timelineList.innerHTML = `
@@ -266,39 +458,22 @@ function updateTimeline(result) {
       <header class="report-head">
         <h4>${escapeHtml(report.title)}</h4>
         <p><strong>Endpoint:</strong> ${escapeHtml(report.endpoint.url)}</p>
-        <p><strong>Metoda:</strong> ${escapeHtml(report.endpoint.method)}</p>
-        <p><strong>Generisano:</strong> ${escapeHtml(new Date(report.generatedAt).toLocaleString())}</p>
+        <p><strong>${escapeHtml(report.endpoint.method)} | ${escapeHtml(new Date(report.generatedAt).toLocaleString())}</strong></p>
       </header>
 
-      <section class="report-grid">
-        <article class="report-card">
-          <h5>Security sazetak</h5>
-          <p><strong>Ukupno testova:</strong> ${escapeHtml(report.summary.totalTests)}</p>
-          <p><strong>Proslo:</strong> ${escapeHtml(report.summary.passed)}</p>
-          <p><strong>Palo:</strong> ${escapeHtml(report.summary.failed)}</p>
-          <p><strong>Security score:</strong> ${escapeHtml(report.summary.securityScore)}%</p>
-          <p><strong>Risk level:</strong> ${escapeHtml(report.summary.riskLevel)}</p>
-        </article>
-
-        <article class="report-card">
-          <h5>Performance</h5>
-          <p><strong>Avg latency:</strong> ${escapeHtml(perf.avgLatencyMs ?? "N/A")} ms</p>
-          <p><strong>P50/P90/P99:</strong> ${escapeHtml(perf.latencyP50 ?? "N/A")} / ${escapeHtml(perf.latencyP90 ?? "N/A")} / ${escapeHtml(perf.latencyP99 ?? "N/A")} ms</p>
-          <p><strong>Requests/sec:</strong> ${escapeHtml(perf.requestsPerSec ?? "N/A")}</p>
-          <p><strong>Errors/Timeouts:</strong> ${escapeHtml(perf.errorCount ?? "N/A")} / ${escapeHtml(perf.timeouts ?? "N/A")}</p>
-        </article>
+      <section class="report-card">
+        <p><strong>Testovi:</strong> ${escapeHtml(report.summary.totalTests)} | <strong>Proslo:</strong> ${escapeHtml(report.summary.passed)} | <strong>Palo:</strong> ${escapeHtml(report.summary.failed)} | <strong>Neodredjeno:</strong> ${escapeHtml(report.summary.inconclusive ?? 0)}</p>
+        <p><strong>Security score:</strong> ${escapeHtml(report.summary.securityScore)}% | <strong>Risk:</strong> ${escapeHtml(report.summary.riskLevel)}</p>
+        <p><strong>Latency:</strong> ${escapeHtml(perf.avgLatencyMs ?? "N/A")} ms (P99 ${escapeHtml(perf.latencyP99 ?? "N/A")} ms) | <strong>RPS:</strong> ${escapeHtml(perf.requestsPerSec ?? "N/A")} | <strong>Errors:</strong> ${escapeHtml(perf.errorCount ?? "N/A")}</p>
       </section>
 
       <section class="report-card">
         <h5>Analiza rezultata (Automatska)</h5>
-        <div class="analysis-grid">
-          <p><strong>Naslov:</strong> ${escapeHtml(analysis.headline || "N/A")}</p>
-          <p><strong>Sigurnost:</strong> ${escapeHtml(analysis.securityLevel || "N/A")}</p>
-          <p><strong>Performanse:</strong> ${escapeHtml(analysis.performanceLevel || "N/A")}</p>
-        </div>
-        <p><strong>Interpretacija:</strong> ${escapeHtml(interpretation || analysisSummary)}</p>
+        <p><strong>${escapeHtml(shortenText(analysis.headline || "N/A", 120))}</strong></p>
+        <p><strong>Sigurnost:</strong> ${escapeHtml(analysis.securityLevel || "N/A")} | <strong>Performanse:</strong> ${escapeHtml(analysis.performanceLevel || "N/A")}</p>
+        <p><strong>Interpretacija:</strong> ${escapeHtml(shortenText(interpretation || analysisSummary, 260))}</p>
         <div><strong>Preporuke:</strong>${recommendationsHtml}</div>
-        <p><strong>Zakljucak:</strong> ${escapeHtml(cleanConclusion)}</p>
+        <p><strong>Zakljucak:</strong> ${escapeHtml(shortenText(cleanConclusion, 200))}</p>
       </section>
 
       <section class="report-card">
@@ -311,11 +486,15 @@ function updateTimeline(result) {
   output.style.display = "none";
   timeline.style.display = "block";
   backBtn.style.display = "block";
+  downloadBtn.style.display = "block";
+  lastResultForDownload = result;
 
   backBtn.onclick = () => {
     timeline.style.display = "none";
     output.style.display = "block";
     backBtn.style.display = "none";
+    downloadBtn.style.display = "none";
+    lastResultForDownload = null;
     if (currentSwagger) showEndpoints(currentSwagger);
   };
 }
