@@ -432,8 +432,8 @@ app.post("/run-test", runTestLimiter, async (req, res) => {
     const loadOpts = {
       url: loadTargetUrl,
       method: normalizedMethod,
-      connections: 3,
-      amount: 100,
+      connections: 10,
+      amount: 200,
       timeout: 10,
       headers: options.headers || {},
       body: options.body || undefined,

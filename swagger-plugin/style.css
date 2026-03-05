@@ -138,6 +138,12 @@ button:active {
   transform: translateY(0);
 }
 
+button:disabled,
+input:disabled {
+  opacity: 0.62;
+  cursor: not-allowed;
+}
+
 .output:empty {
   display: none;
 }
@@ -237,6 +243,12 @@ li:hover {
   gap: 8px;
 }
 
+@media (max-width: 420px) {
+  .report-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .report-card {
   padding: 10px;
   border: 1px solid #d7e5d9;
@@ -331,6 +343,27 @@ li:hover {
   font-size: 12px;
   font-weight: 700;
   color: #24564b;
+}
+
+.status-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.status-pill.is-passed {
+  background: #ebf9f0;
+  color: #1f7a44;
+  border-color: #a8dbbb;
+}
+
+.status-pill.is-failed {
+  background: #fff1f1;
+  color: #a33030;
+  border-color: #e8b0b0;
 }
 
 .endpoint-btn {

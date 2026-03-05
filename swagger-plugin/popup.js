@@ -9,6 +9,7 @@ const output = document.getElementById("output");
 const timeline = document.getElementById("timeline");
 const timelineList = document.getElementById("timelineList");
 const backBtn = document.getElementById("backBtn");
+let isRunningTest = false;
 
 function escapeHtml(value) {
   return String(value)
@@ -20,17 +21,32 @@ function escapeHtml(value) {
 }
 
 loadBtn.addEventListener("click", async () => {
+  if (isRunningTest) return;
   const url = swaggerInput.value.trim();
   if (!url) return;
 
   try {
-    const swagger = await (await fetch(url)).json();
+    output.style.display = "block";
+    output.innerHTML = 'Ucitavanje Swagger dokumentacije<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const swagger = await response.json();
+    if (!swagger?.paths || typeof swagger.paths !== "object") throw new Error("Nevalidan Swagger/OpenAPI dokument.");
     currentSwagger = swagger;
     showEndpoints(swagger);
-  } catch {
-    output.innerHTML = "Greska pri ucitavanju Swagger dokumentacije.";
+  } catch (err) {
+    output.innerHTML = `Greska pri ucitavanju Swagger dokumentacije: ${escapeHtml(err?.message || "Nepoznata greska")}`;
   }
 });
+
+function setRunState(active) {
+  isRunningTest = active;
+  loadBtn.disabled = active;
+  swaggerInput.disabled = active;
+  document.querySelectorAll(".endpoint-btn").forEach((btn) => {
+    btn.disabled = active;
+  });
+}
 
 function extractBaseUrl(swagger) {
   if (swagger.servers && swagger.servers.length > 0) return swagger.servers[0].url;
@@ -152,6 +168,7 @@ function showEndpoints(swagger) {
 }
 
 async function runTest(path, method) {
+  if (isRunningTest) return;
   const baseUrl = extractBaseUrl(currentSwagger);
   if (!baseUrl) {
     output.innerHTML = "Ne mogu odrediti baseUrl.";
@@ -177,6 +194,7 @@ async function runTest(path, method) {
   const endpointContext = getEndpointContext(currentSwagger, path, method);
   output.style.display = "block";
   output.innerHTML = 'Testiranje u toku<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
+  setRunState(true);
 
   try {
     const response = await fetch(`${BACKEND_URL}/run-test`, {
@@ -185,10 +203,21 @@ async function runTest(path, method) {
       body: JSON.stringify({ baseUrl, path, method, endpointContext }),
     });
 
+    if (!response.ok) {
+      let backendMessage = `Backend greska (HTTP ${response.status})`;
+      try {
+        const errData = await response.json();
+        if (errData?.error) backendMessage = errData.error;
+      } catch (e) {}
+      throw new Error(backendMessage);
+    }
+
     const result = await response.json();
     updateTimeline(result);
-  } catch {
-    output.innerHTML = "Backend nije pokrenut.";
+  } catch (err) {
+    output.innerHTML = `Test nije pokrenut: ${escapeHtml(err?.message || "Backend nije pokrenut.")}`;
+  } finally {
+    setRunState(false);
   }
 }
 
@@ -208,7 +237,7 @@ function updateTimeline(result) {
     .map((finding) => `
       <article class="finding-item">
         <p><strong>Test:</strong> ${escapeHtml(finding.testType)}</p>
-        <p><strong>Status:</strong> ${escapeHtml(finding.status)}</p>
+        <p><strong>Status:</strong> <span class="status-pill ${String(finding.status).toLowerCase() === "passed" ? "is-passed" : "is-failed"}">${escapeHtml(finding.status)}</span></p>
         <p><strong>Napomena:</strong> ${escapeHtml(finding.note)}</p>
         <p><strong>Poruka:</strong> ${escapeHtml(finding.message)}</p>
         <p><strong>HTTP status:</strong> ${escapeHtml(finding.statusCode ?? "N/A")}</p>
