@@ -1,5 +1,6 @@
 ﻿let currentSwagger = null;
-const BACKEND_URL = "http://localhost:3000";
+//const BACKEND_URL = "http://localhost:3000";
+const BACKEND_URL="https://swagger-tester-backend.onrender.com";
 const _lastRuns = {};
 const _maxRunsPerMinute = 2;
 
