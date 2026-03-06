@@ -2,6 +2,8 @@
 const BACKEND_URL = "http://localhost:3000";
 //const BACKEND_URL = "https://swagger-tester-backend.onrender.com";
 const RUN_TEST_URL = `${BACKEND_URL.replace(/\/+$/, "")}/run-test`;
+const API_KEY_HEADER = (localStorage.getItem("swaggerTesterApiKeyHeader") || "x-api-key").trim();
+const API_KEY = (localStorage.getItem("swaggerTesterApiKey") || "").trim();
 const _lastRuns = {};
 const _maxRunsPerMinute = 2;
 
@@ -406,9 +408,12 @@ async function runTest(path, method) {
   setRunState(true);
 
   try {
+    const headers = { "Content-Type": "application/json" };
+    if (API_KEY) headers[API_KEY_HEADER || "x-api-key"] = API_KEY;
+
     const response = await fetch(RUN_TEST_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ baseUrl, path, method, endpointContext }),
     });
 
