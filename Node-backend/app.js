@@ -36,7 +36,6 @@ function sanitizeObject(obj, depth = 0) {
   if (typeof obj === "object") {
     const out = {};
     for (const k of Object.keys(obj)) {
-      if (out && out[k] !== undefined) continue;
       try {
         out[k] = sanitizeObject(obj[k], depth + 1);
       } catch (e) {

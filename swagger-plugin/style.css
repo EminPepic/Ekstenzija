@@ -248,18 +248,6 @@ li:hover {
   font-size: 12px;
 }
 
-.report-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-@media (max-width: 420px) {
-  .report-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
 .report-card {
   padding: 10px;
   border: 1px solid #d7e5d9;
@@ -278,41 +266,60 @@ li:hover {
   line-height: 1.4;
 }
 
-.analysis-report {
-  margin-top: 12px;
-  padding: 10px;
-  border: 1px solid #d4e1d5;
+.grade-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 8px;
+  padding: 8px 9px;
   border-radius: 10px;
-  background: linear-gradient(160deg, #f5faf6 0%, #ffffff 100%);
+  border: 1px solid #d7e5d9;
+  background: linear-gradient(160deg, #f5fbf6 0%, #ffffff 100%);
 }
 
-.analysis-report h4 {
-  margin: 0 0 6px;
-  font-size: 14px;
-}
-
-.analysis-report p {
-  margin: 0;
-  line-height: 1.45;
-  color: #314842;
-  font-size: 12.5px;
-}
-
-.analysis-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px 10px;
-  margin-bottom: 8px;
-}
-
-.analysis-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid #b7cec0;
-  background: #ecf5ef;
+.grade-label {
+  font-size: 12px;
   font-weight: 700;
-  font-size: 11px;
+  color: #1f3e35;
+}
+
+.test-grade-pill {
+  display: inline-block;
+  min-width: 58px;
+  text-align: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 15px;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.test-grade-pill.is-good {
+  color: #166534;
+  background: #eaf8ef;
+  border-color: #9fd8b0;
+  box-shadow: 0 0 0 2px rgba(159, 216, 176, 0.25);
+}
+
+.test-grade-pill.is-mid {
+  color: #8a6400;
+  background: #fff7de;
+  border-color: #e8cf8a;
+  box-shadow: 0 0 0 2px rgba(232, 207, 138, 0.25);
+}
+
+.test-grade-pill.is-bad {
+  color: #9f2f2f;
+  background: #fff0f0;
+  border-color: #e2abab;
+  box-shadow: 0 0 0 2px rgba(226, 171, 171, 0.25);
+}
+
+.test-grade-pill.is-neutral {
+  color: #42535d;
+  background: #eef2f5;
+  border-color: #c5d1d8;
 }
 
 .analysis-recommendations {

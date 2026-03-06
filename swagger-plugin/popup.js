@@ -30,6 +30,20 @@ function shortenText(value, maxLen = 220) {
   return `${raw.slice(0, maxLen)}...`;
 }
 
+function scoreToGrade10(securityScore) {
+  const score = Number(securityScore);
+  if (!Number.isFinite(score)) return "N/A";
+  return String(Math.max(1, Math.min(10, Math.round(score / 10))));
+}
+
+function gradeToneClass(grade10) {
+  const n = Number(grade10);
+  if (!Number.isFinite(n)) return "is-neutral";
+  if (n >= 8) return "is-good";
+  if (n >= 5) return "is-mid";
+  return "is-bad";
+}
+
 function formatDetailedReport(result) {
   const report = result?.report || {};
   const perf = report.performance || {};
@@ -428,6 +442,8 @@ function updateTimeline(result) {
   }
 
   const perf = report.performance || {};
+  const grade10 = scoreToGrade10(report.summary?.securityScore);
+  const gradeTone = gradeToneClass(grade10);
   const findingsHtml = (report.findings || [])
     .map((finding) => `
       <article class="finding-item">
@@ -464,6 +480,10 @@ function updateTimeline(result) {
       </header>
 
       <section class="report-card">
+        <div class="grade-row">
+          <span class="grade-label">Ocjena testiranja</span>
+          <span class="test-grade-pill ${escapeHtml(gradeTone)}">${escapeHtml(grade10)}/10</span>
+        </div>
         <p><strong>Testovi:</strong> ${escapeHtml(report.summary.totalTests)} | <strong>Proslo:</strong> ${escapeHtml(report.summary.passed)} | <strong>Palo:</strong> ${escapeHtml(report.summary.failed)} | <strong>Neodredjeno:</strong> ${escapeHtml(report.summary.inconclusive ?? 0)}</p>
         <p><strong>Security score:</strong> ${escapeHtml(report.summary.securityScore)}% | <strong>Risk:</strong> ${escapeHtml(report.summary.riskLevel)}</p>
         <p><strong>Latency:</strong> ${escapeHtml(perf.avgLatencyMs ?? "N/A")} ms (P99 ${escapeHtml(perf.latencyP99 ?? "N/A")} ms) | <strong>RPS:</strong> ${escapeHtml(perf.requestsPerSec ?? "N/A")} | <strong>Errors:</strong> ${escapeHtml(perf.errorCount ?? "N/A")}</p>
