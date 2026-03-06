@@ -1,6 +1,7 @@
 ﻿let currentSwagger = null;
-//const BACKEND_URL = "http://localhost:3000";
-const BACKEND_URL = "https://swagger-tester-backend.onrender.com";
+const BACKEND_URL = "http://localhost:3000";
+//const BACKEND_URL = "https://swagger-tester-backend.onrender.com";
+const RUN_TEST_URL = `${BACKEND_URL.replace(/\/+$/, "")}/run-test`;
 const _lastRuns = {};
 const _maxRunsPerMinute = 2;
 
@@ -391,7 +392,7 @@ async function runTest(path, method) {
   setRunState(true);
 
   try {
-    const response = await fetch(`${BACKEND_URL}/run-test`, {
+    const response = await fetch(RUN_TEST_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ baseUrl, path, method, endpointContext }),

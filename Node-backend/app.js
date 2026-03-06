@@ -372,8 +372,156 @@ function hasSuspiciousMarkers(value) {
   return patterns.some((re) => re.test(s));
 }
 
+function hasXssLikePayload(value) {
+  const s = String(value || "").toLowerCase();
+  return /<script|onerror=|onload=|javascript:|<svg|<img/i.test(s);
+}
+
+function hasCommandOrTraversalPayload(value) {
+  const s = String(value || "").toLowerCase();
+  return /cat\s+\/etc\/passwd|whoami|cmd\.exe|powershell|\.\.\/|%2e%2e%2f|%252f|%00|\x00/.test(s);
+}
+
+function detectConfirmedExecutionEvidence(responseText) {
+  const text = String(responseText || "");
+  if (!text) return { confirmed: false, reason: "" };
+  const lowered = text.toLowerCase();
+
+  if (/root:x:0:0:|daemon:x:|\/bin\/bash/.test(text)) {
+    return { confirmed: true, reason: "Odgovor sadrzi sadrzaj osjetljivih sistemskih fajlova (npr. /etc/passwd)." };
+  }
+  if (/uid=\d+\(.+\)\s+gid=\d+\(.+\)/.test(text)) {
+    return { confirmed: true, reason: "Odgovor sadrzi izlaz sistemske komande (uid/gid)." };
+  }
+  if (/\[extensions\]|\[fonts\]|\[mci extensions\]/i.test(text)) {
+    return { confirmed: true, reason: "Odgovor izgleda kao sadrzaj osjetljivog konfiguracionog fajla (win.ini)." };
+  }
+  if (lowered.includes("information_schema") || lowered.includes("pg_catalog") || lowered.includes("sqlite_master")) {
+    return { confirmed: true, reason: "Odgovor sadrzi DB metapodatke koji ukazuju na injekciju." };
+  }
+
+  return { confirmed: false, reason: "" };
+}
+
+function getResponseContentType(response) {
+  try {
+    return String(response?.headers?.get("content-type") || "").toLowerCase();
+  } catch (e) {
+    return "";
+  }
+}
+
+function tryParseJson(text) {
+  try {
+    return JSON.parse(String(text || ""));
+  } catch (e) {
+    return null;
+  }
+}
+
+function stableStringify(value) {
+  if (value === null || value === undefined) return String(value);
+  if (typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((v) => stableStringify(v)).join(",")}]`;
+  const keys = Object.keys(value).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(",")}}`;
+}
+
+function stripVolatileFields(value, depth = 0) {
+  if (depth > 6 || value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.slice(0, 100).map((v) => stripVolatileFields(v, depth + 1));
+  if (typeof value !== "object") return value;
+
+  const out = {};
+  const volatileKey = /(timestamp|generatedat|requestid|traceid|correlationid|nonce|signature|expiresat|createdat|updatedat)/i;
+  for (const key of Object.keys(value)) {
+    if (volatileKey.test(key)) continue;
+    out[key] = stripVolatileFields(value[key], depth + 1);
+  }
+  return out;
+}
+
+function hasEquivalentBody(baselineText, responseText) {
+  const sameRaw = normalizeBody(baselineText) === normalizeBody(responseText);
+  if (sameRaw) return true;
+
+  const baseJson = tryParseJson(baselineText);
+  const currJson = tryParseJson(responseText);
+  if (!baseJson || !currJson) return false;
+
+  const baseComparable = stripVolatileFields(baseJson);
+  const currComparable = stripVolatileFields(currJson);
+  return stableStringify(baseComparable) === stableStringify(currComparable);
+}
+
+function detectApplicationLevelBlock(responseText) {
+  const text = String(responseText || "");
+  if (!text) return { blocked: false, reason: "" };
+
+  const lowered = text.toLowerCase();
+  const phrases = [
+    "invalid input",
+    "input validation",
+    "not allowed",
+    "forbidden",
+    "access denied",
+    "request blocked",
+    "malicious",
+    "suspicious",
+    "waf",
+    "nevalid",
+    "nedozvolj",
+    "zabranjen",
+    "odbijen",
+    "previše zahtjeva",
+    "previse zahtjeva",
+  ];
+
+  if (phrases.some((p) => lowered.includes(p))) {
+    return { blocked: true, reason: "Tekst odgovora ukazuje na odbijanje zahtjeva." };
+  }
+
+  const json = tryParseJson(text);
+  if (json && typeof json === "object") {
+    if (json.ok === false || json.success === false || json.blocked === true || json.allowed === false) {
+      return { blocked: true, reason: "JSON polja ukazuju da je zahtjev odbijen." };
+    }
+    const errText = String(json.error || json.message || "").toLowerCase();
+    if (errText && phrases.some((p) => errText.includes(p))) {
+      return { blocked: true, reason: "JSON poruka ukazuje na odbijanje zahtjeva." };
+    }
+  }
+
+  return { blocked: false, reason: "" };
+}
+
 function classify2xxWithBaseline({ response, responseText, baseline, method, value, elapsedMs }) {
+  const writeMethod = ["POST", "PUT", "PATCH"].includes(String(method || "").toUpperCase());
+  const suspicious = hasSuspiciousMarkers(value);
+  const baselineMs = Number(baseline?.elapsedMs || 0);
+  const isTimeProbe = hasTimeInjectionMarker(value);
+  const suspiciousDelay = isTimeProbe && elapsedMs > Math.max(4000, baselineMs + 2500);
+
+  if (suspiciousDelay) {
+    return buildVerdict({
+      status: "Failed",
+      findingType: "Confirmed Vulnerability",
+      severity: "Critical",
+      note: `Moguca time-based injekcija (odziv ${elapsedMs} ms, baseline ${baselineMs} ms).`,
+      message: "Payload sa vremenskom injekcijom je izazvao znacajno kasnjenje.",
+    });
+  }
+
   if (!baseline) {
+    if (suspicious) {
+      return buildVerdict({
+        status: "Failed",
+        findingType: "Possible Vulnerability",
+        severity: "Medium",
+        note: "Nema baseline-a, a sumnjiv payload je dobio 2xx bez signala blokiranja.",
+        message: "API je vjerovatno obradio sumnjiv payload bez eksplicitne zastite.",
+      });
+    }
     return buildVerdict({
       status: "Inconclusive",
       findingType: "Unclassified Behavior",
@@ -386,12 +534,7 @@ function classify2xxWithBaseline({ response, responseText, baseline, method, val
   const currentStatus = Number(response.status);
   const baselineStatus = Number(baseline.statusCode);
   const sameStatus = currentStatus === baselineStatus;
-  const sameBody = normalizeBody(baseline.text) === normalizeBody(responseText);
-  const writeMethod = ["POST", "PUT", "PATCH"].includes(String(method || "").toUpperCase());
-  const suspicious = hasSuspiciousMarkers(value);
-  const baselineMs = Number(baseline.elapsedMs || 0);
-  const isTimeProbe = hasTimeInjectionMarker(value);
-  const suspiciousDelay = isTimeProbe && elapsedMs > Math.max(4000, baselineMs + 2500);
+  const sameBody = hasEquivalentBody(baseline.text, responseText);
 
   if (sameStatus && sameBody) {
     return buildVerdict({
@@ -413,16 +556,6 @@ function classify2xxWithBaseline({ response, responseText, baseline, method, val
     });
   }
 
-  if (suspiciousDelay) {
-    return buildVerdict({
-      status: "Failed",
-      findingType: "Confirmed Vulnerability",
-      severity: "Critical",
-      note: `Moguca time-based injekcija (odziv ${elapsedMs} ms, baseline ${baselineMs} ms).`,
-      message: "Payload sa vremenskom injekcijom je izazvao znacajno kasnjenje.",
-    });
-  }
-
   if (writeMethod && suspicious) {
     return buildVerdict({
       status: "Failed",
@@ -430,6 +563,26 @@ function classify2xxWithBaseline({ response, responseText, baseline, method, val
       severity: "Medium",
       note: "Sumnjiv payload je promijenio write odgovor bez jasnog blokiranja.",
       message: "POST/PUT/PATCH je obradio rizican unos i vratio izmijenjen odgovor.",
+    });
+  }
+
+  if (suspicious) {
+    return buildVerdict({
+      status: "Failed",
+      findingType: "Possible Vulnerability",
+      severity: "Medium",
+      note: "Sumnjiv payload je dobio 2xx i izmijenio odgovor bez jasnog blokiranja.",
+      message: "API je vjerovatno obradio sumnjiv unos umjesto da ga odbije.",
+    });
+  }
+
+  if (sameStatus && !sameBody) {
+    return buildVerdict({
+      status: "Passed",
+      findingType: "Safe 2xx Variation",
+      severity: "Low",
+      note: "Odgovor se razlikuje od baseline-a, ali bez signala exploita.",
+      message: "API je odgovorio drugacije, bez direktnih indikatora ranjivosti.",
     });
   }
 
@@ -444,6 +597,7 @@ function classify2xxWithBaseline({ response, responseText, baseline, method, val
 
 function evaluate({ value, response, responseText, baseline, method, elapsedMs }) {
   const methodName = String(method || "").toUpperCase();
+  const contentType = getResponseContentType(response);
   if (!response) return buildVerdict({ status: "Failed", findingType: "Transport Error", severity: "Medium", note: "Nema odgovora servera.", message: "Server nije odgovorio." });
   if (response.status >= 500) return buildVerdict({ status: "Failed", findingType: "Server Error", severity: "High", note: "Server je pao (5xx).", message: "Server error - payload izazvao gresku." });
   if (isExplicitBlockStatus(response.status)) return buildVerdict({ status: "Passed", findingType: "Request Blocked", severity: "Low", note: `Server je eksplicitno odbio payload (${response.status}).`, message: "Payload blokiran, zastita radi." });
@@ -471,22 +625,66 @@ function evaluate({ value, response, responseText, baseline, method, elapsedMs }
       });
     }
 
+    const appBlock = detectApplicationLevelBlock(responseText);
+    if (appBlock.blocked) {
+      return buildVerdict({
+        status: "Passed",
+        findingType: "Request Blocked",
+        severity: "Low",
+        note: appBlock.reason,
+        message: "Aplikacija je odbila payload iako je HTTP status 2xx.",
+      });
+    }
+
+    const exploitEvidence = detectConfirmedExecutionEvidence(responseText);
+    if (exploitEvidence.confirmed) {
+      return buildVerdict({
+        status: "Failed",
+        findingType: "Confirmed Vulnerability",
+        severity: "Critical",
+        note: exploitEvidence.reason,
+        message: "Odgovor sadrzi jake dokaze da je payload izvrsen.",
+      });
+    }
+
+    if (looksEscapedReflection(responseText, value)) {
+      return buildVerdict({
+        status: "Passed",
+        findingType: "Escaped Reflection",
+        severity: "Low",
+        note: "Payload je reflektovan ali escaped u odgovoru.",
+        message: "Refleksija izgleda bezbjedno (output escaping).",
+      });
+    }
+
     if (looksReflected(responseText, value)) {
+      const reflectedXssInHtml = hasXssLikePayload(value) && contentType.includes("text/html");
+      if (reflectedXssInHtml) {
+        return buildVerdict({
+          status: "Failed",
+          findingType: "Possible Vulnerability",
+          severity: "High",
+          note: "XSS payload je reflektovan u HTML odgovoru bez escaping-a.",
+          message: "Postoji visok rizik reflected XSS ranjivosti.",
+        });
+      }
+
+      if (hasCommandOrTraversalPayload(value)) {
+        return buildVerdict({
+          status: "Failed",
+          findingType: "Possible Vulnerability",
+          severity: "Medium",
+          note: "Sumnjiv payload je reflektovan bez jasnog blokiranja.",
+          message: "API je vratio rizican input; moguca nesigurna obrada unosa.",
+        });
+      }
+
       return buildVerdict({
         status: "Inconclusive",
         findingType: "Reflected Input",
         severity: "Informational",
         note: "Payload je reflektovan u odgovoru.",
         message: "Input je vracen u response; bez dodatnih dokaza ovo nije automatski exploit.",
-      });
-    }
-    if (looksEscapedReflection(responseText, value)) {
-      return buildVerdict({
-        status: "Inconclusive",
-        findingType: "Escaped Reflection",
-        severity: "Informational",
-        note: "Payload je reflektovan ali escaped u odgovoru.",
-        message: "Moguca bezbjedna refleksija (output escaping), bez direktne potvrde exploita.",
       });
     }
     return classify2xxWithBaseline({ response, responseText, baseline, method: methodName, value, elapsedMs });
