@@ -7,7 +7,6 @@ const _lastRuns = {};
 const _maxRunsPerMinute = 2;
 const IS_LOCAL_BACKEND = /^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(BACKEND_URL);
 
-// default load-test parameters are hard‑coded for public use
 const DEFAULT_CONCURRENCY = 10;
 const DEFAULT_DURATION = 5;
 
