@@ -95,6 +95,14 @@ label {
   color: #1f2d4a;
 }
 
+.file-label {
+  margin-top: 10px;
+}
+
+.file-input {
+  margin-top: 6px;
+}
+
 input,
 button {
   width: 100%;

@@ -1,13 +1,18 @@
 ﻿let currentSwagger = null;
-const BACKEND_URL = "http://localhost:3000";
-//const BACKEND_URL = "https://swagger-tester-backend.onrender.com";
+const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "http://localhost:3000").trim();
+// const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "https://swagger-tester-backend.onrender.com").trim();
 const RUN_TEST_URL = `${BACKEND_URL.replace(/\/+$/, "")}/run-test`;
 const API_KEY_HEADER = (localStorage.getItem("swaggerTesterApiKeyHeader") || "x-api-key").trim();
 const API_KEY = (localStorage.getItem("swaggerTesterApiKey") || "").trim();
 const _lastRuns = {};
 const _maxRunsPerMinute = 2;
 
+// default load-test parameters are hard‑coded for public use
+const DEFAULT_CONCURRENCY = 10;
+const DEFAULT_DURATION = 5;
+
 const swaggerInput = document.getElementById("swaggerUrl");
+const swaggerFileInput = document.getElementById("swaggerFile");
 const loadBtn = document.getElementById("loadSwagger");
 const output = document.getElementById("output");
 const timeline = document.getElementById("timeline");
@@ -231,23 +236,56 @@ function downloadDetailedReport() {
 
 downloadBtn.onclick = downloadDetailedReport;
 
+async function parseSwagger(text) {
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new Error("Nije moguce parsirati JSON");
+  }
+}
+
 loadBtn.addEventListener("click", async () => {
   if (isRunningTest) return;
-  const url = swaggerInput.value.trim();
-  if (!url) return;
+  let swagger = null;
 
-  try {
+  // priority: file input over URL
+  if (swaggerFileInput && swaggerFileInput.files && swaggerFileInput.files.length > 0) {
+    const file = swaggerFileInput.files[0];
     output.style.display = "block";
-    output.innerHTML = 'Ucitavanje Swagger dokumentacije<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const swagger = await response.json();
-    if (!swagger?.paths || typeof swagger.paths !== "object") throw new Error("Nevalidan Swagger/OpenAPI dokument.");
-    currentSwagger = swagger;
-    showEndpoints(swagger);
-  } catch (err) {
-    output.innerHTML = `Greska pri ucitavanju Swagger dokumentacije: ${escapeHtml(err?.message || "Nepoznata greska")}`;
+    output.innerHTML = `Učitavanje iz fajla ${escapeHtml(file.name)}<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>`;
+    try {
+      const text = await new Promise((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = () => res(reader.result);
+        reader.onerror = () => rej(reader.error);
+        reader.readAsText(file);
+      });
+      swagger = await parseSwagger(text);
+    } catch (err) {
+      output.innerHTML = `Greška pri parsiranju fajla: ${escapeHtml(err?.message || 'nepoznato')}`;
+      return;
+    }
+  } else {
+    const url = swaggerInput.value.trim();
+    if (!url) return;
+    output.style.display = "block";
+    output.innerHTML = 'Učitavanje Swagger dokumentacije<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      swagger = await response.json();
+    } catch (err) {
+      output.innerHTML = `Greska pri ucitavanju Swagger dokumentacije: ${escapeHtml(err?.message || "Nepoznata greska")}`;
+      return;
+    }
   }
+
+  if (!swagger?.paths || typeof swagger.paths !== "object") {
+    output.innerHTML = "Nevalidan Swagger/OpenAPI dokument.";
+    return;
+  }
+  currentSwagger = swagger;
+  showEndpoints(swagger);
 });
 
 function setRunState(active) {
@@ -409,12 +447,13 @@ async function runTest(path, method) {
 
   try {
     const headers = { "Content-Type": "application/json" };
-    if (API_KEY) headers[API_KEY_HEADER || "x-api-key"] = API_KEY;
+    // no API key included in public build
+    const options = { connections: DEFAULT_CONCURRENCY, duration: DEFAULT_DURATION };
 
     const response = await fetch(RUN_TEST_URL, {
       method: "POST",
       headers,
-      body: JSON.stringify({ baseUrl, path, method, endpointContext }),
+      body: JSON.stringify({ baseUrl, path, method, endpointContext, options }),
     });
 
     if (!response.ok) {

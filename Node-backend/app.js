@@ -6,8 +6,7 @@ const rateLimit = require("express-rate-limit");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const API_KEY = String(process.env.API_KEY || "").trim();
-const API_KEY_HEADER = String(process.env.API_KEY_HEADER || "x-api-key").trim();
+// API key authentication removed for public release
 const ALLOWED_ORIGINS = String(process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((origin) => origin.trim())
@@ -37,14 +36,7 @@ if (ALLOWED_ORIGINS.length > 0) {
 }
 app.use(express.json({ limit: "100kb" }));
 
-function requireApiKeyIfConfigured(req, res, next) {
-  if (!API_KEY) return next();
-  const provided = String(req.get(API_KEY_HEADER) || "").trim();
-  if (provided !== API_KEY) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-  return next();
-}
+// API key checker removed; no authentication required
 
 function sanitizeString(s, maxLen = 1024) {
   if (s === null || s === undefined) return "";
@@ -927,7 +919,7 @@ function generateAnalysisSummary({ summary, performance, findings }) {
   };
 }
 
-app.post("/run-test", runTestLimiter, requireApiKeyIfConfigured, async (req, res) => {
+app.post("/run-test", runTestLimiter, async (req, res) => {
   if (activeTests >= MAX_ACTIVE_TESTS) {
     return res.status(429).json({
       error: "Previše aktivnih testova. Pokušaj kasnije."
