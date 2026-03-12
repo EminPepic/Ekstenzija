@@ -1,9 +1,7 @@
 ﻿let currentSwagger = null;
-const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "http://localhost:3000").trim();
-// const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "https://swagger-tester-backend.onrender.com").trim();
+//const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "http://localhost:3000").trim();
+const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "https://swagger-tester-backend.onrender.com").trim();
 const RUN_TEST_URL = `${BACKEND_URL.replace(/\/+$/, "")}/run-test`;
-const API_KEY_HEADER = (localStorage.getItem("swaggerTesterApiKeyHeader") || "x-api-key").trim();
-const API_KEY = (localStorage.getItem("swaggerTesterApiKey") || "").trim();
 const _lastRuns = {};
 const _maxRunsPerMinute = 2;
 
@@ -21,6 +19,7 @@ const backBtn = document.getElementById("backBtn");
 const downloadBtn = document.getElementById("downloadBtn");
 let isRunningTest = false;
 let lastResultForDownload = null;
+
 
 function escapeHtml(value) {
   return String(value)
@@ -447,7 +446,6 @@ async function runTest(path, method) {
 
   try {
     const headers = { "Content-Type": "application/json" };
-    // no API key included in public build
     const options = { connections: DEFAULT_CONCURRENCY, duration: DEFAULT_DURATION };
 
     async function sendRunTest() {

@@ -5,8 +5,10 @@ const autocannon = require("autocannon");
 const rateLimit = require("express-rate-limit");
 
 const app = express();
+app.set("trust proxy", 1);
 const PORT = process.env.PORT || 3000;
-// API key authentication removed for public release
+const API_KEY = String(process.env.API_KEY || "").trim();
+const API_KEY_HEADER = String(process.env.API_KEY_HEADER || "x-api-key").trim();
 const ALLOWED_ORIGINS = String(process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((origin) => origin.trim())
@@ -37,7 +39,28 @@ if (ALLOWED_ORIGINS.length > 0) {
 }
 app.use(express.json({ limit: "100kb" }));
 
-// API key checker removed; no authentication required
+function isLocalRequest(req) {
+  const ip = String(req.ip || "").trim();
+  const host = String(req.hostname || "").trim().toLowerCase();
+  return (
+    ip === "127.0.0.1" ||
+    ip === "::1" ||
+    ip === "::ffff:127.0.0.1" ||
+    host === "localhost"
+  );
+}
+
+function requireApiKeyIfConfigured(req, res, next) {
+  if (isLocalRequest(req)) return next();
+  if (!API_KEY) {
+    return res.status(403).json({ error: "API_KEY nije postavljen za vanjske zahtjeve." });
+  }
+  const provided = String(req.get(API_KEY_HEADER) || "").trim();
+  if (provided !== API_KEY) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  return next();
+}
 
 function sanitizeString(s, maxLen = 1024) {
   if (s === null || s === undefined) return "";
@@ -937,7 +960,7 @@ function generateAnalysisSummary({ summary, performance, findings }) {
   };
 }
 
-app.post("/run-test", runTestLimiter, async (req, res) => {
+app.post("/run-test", runTestLimiter, requireApiKeyIfConfigured, async (req, res) => {
   if (activeTests >= MAX_ACTIVE_TESTS) {
     return res.status(429).json({
       error: "Previše aktivnih testova. Pokušaj kasnije."
