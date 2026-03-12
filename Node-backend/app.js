@@ -17,6 +17,9 @@ const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 30000);
 
 let activeTests = 0;
 const MAX_ACTIVE_TESTS = 2; 
+const KEY_WINDOW_MS = 60 * 1000;
+const MAX_TESTS_PER_KEY = Number(process.env.MAX_TESTS_PER_KEY || 10);
+const keyHits = new Map();
 
 const runTestLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minuta
@@ -59,6 +62,15 @@ function requireApiKeyIfConfigured(req, res, next) {
   if (provided !== API_KEY) {
     return res.status(401).json({ error: "Unauthorized" });
   }
+  const now = Date.now();
+  const key = provided || "unknown";
+  const bucket = keyHits.get(key) || [];
+  const fresh = bucket.filter((ts) => now - ts < KEY_WINDOW_MS);
+  if (fresh.length >= MAX_TESTS_PER_KEY) {
+    return res.status(429).json({ error: "Previše zahtjeva za ovaj API key. Pokušaj kasnije." });
+  }
+  fresh.push(now);
+  keyHits.set(key, fresh);
   return next();
 }
 

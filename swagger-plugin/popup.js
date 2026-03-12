@@ -1,9 +1,11 @@
 ﻿let currentSwagger = null;
-//const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "http://localhost:3000").trim();
-const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "https://swagger-tester-backend.onrender.com").trim();
+const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "http://localhost:3000").trim();
+//const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "https://swagger-tester-backend.onrender.com").trim();
 const RUN_TEST_URL = `${BACKEND_URL.replace(/\/+$/, "")}/run-test`;
+const API_KEY_HEADER = "x-api-key";
 const _lastRuns = {};
 const _maxRunsPerMinute = 2;
+const IS_LOCAL_BACKEND = /^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(BACKEND_URL);
 
 // default load-test parameters are hard‑coded for public use
 const DEFAULT_CONCURRENCY = 10;
@@ -11,6 +13,8 @@ const DEFAULT_DURATION = 5;
 
 const swaggerInput = document.getElementById("swaggerUrl");
 const swaggerFileInput = document.getElementById("swaggerFile");
+const apiKeyInput = document.getElementById("apiKeyInput");
+const saveApiKeyBtn = document.getElementById("saveApiKey");
 const loadBtn = document.getElementById("loadSwagger");
 const output = document.getElementById("output");
 const timeline = document.getElementById("timeline");
@@ -19,6 +23,30 @@ const backBtn = document.getElementById("backBtn");
 const downloadBtn = document.getElementById("downloadBtn");
 let isRunningTest = false;
 let lastResultForDownload = null;
+let currentApiKey = "";
+
+if (apiKeyInput) {
+  apiKeyInput.value = "";
+}
+
+if (saveApiKeyBtn) {
+  saveApiKeyBtn.addEventListener("click", () => {
+    const value = String(apiKeyInput?.value || "").trim();
+    if (value) {
+      currentApiKey = value;
+      output.style.display = "block";
+      output.innerHTML = "API key privremeno postavljen (ne cuva se).";
+    } else {
+      currentApiKey = "";
+      output.style.display = "block";
+      output.innerHTML = "API key obrisan.";
+    }
+  });
+}
+
+function getSavedApiKey() {
+  return String(currentApiKey || "").trim();
+}
 
 
 function escapeHtml(value) {
@@ -235,11 +263,166 @@ function downloadDetailedReport() {
 
 downloadBtn.onclick = downloadDetailedReport;
 
+function parseYamlScalar(raw) {
+  const v = String(raw || "").trim();
+  if (v === "") return "";
+  const lower = v.toLowerCase();
+  if (lower === "null" || lower === "~") return null;
+  if (lower === "true") return true;
+  if (lower === "false") return false;
+  if (/^-?\d+(\.\d+)?$/.test(v)) return Number(v);
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    return v.slice(1, -1).replace(/\\n/g, "\n").replace(/\\t/g, "\t").replace(/\\"/g, '"').replace(/\\'/g, "'");
+  }
+  if ((v.startsWith("[") && v.endsWith("]")) || (v.startsWith("{") && v.endsWith("}"))) {
+    try {
+      return JSON.parse(v);
+    } catch (e) {
+      return v;
+    }
+  }
+  return v;
+}
+
+function parseYamlBasic(text) {
+  const lines = String(text || "").replace(/\r/g, "").split("\n");
+  const root = {};
+  const stack = [{ indent: -1, container: root, type: "object", parent: null, key: null }];
+
+  function ensureArrayContainer(top) {
+    if (Array.isArray(top.container)) return top.container;
+    if (top.parent && top.key && top.type === "object" && Object.keys(top.container).length === 0) {
+      top.parent[top.key] = [];
+      top.container = top.parent[top.key];
+      top.type = "array";
+      return top.container;
+    }
+    if (stack.length === 1 && Object.keys(stack[0].container).length === 0) {
+      stack[0].container = [];
+      stack[0].type = "array";
+      return stack[0].container;
+    }
+    return top.container;
+  }
+
+  function parseBlockScalar(startIndex, parentIndent, style) {
+    let blockIndent = null;
+    const out = [];
+    let consumed = 0;
+    for (let j = startIndex + 1; j < lines.length; j++) {
+      const raw = lines[j];
+      const trimmed = raw.trimEnd();
+      if (!trimmed.trim()) {
+        out.push("");
+        consumed++;
+        continue;
+      }
+      const indent = raw.match(/^\s*/)[0].length;
+      if (indent <= parentIndent) break;
+      if (blockIndent === null) blockIndent = indent;
+      if (indent < blockIndent) break;
+      out.push(raw.slice(blockIndent));
+      consumed++;
+    }
+    const joined = style === ">" ? out.join(" ").replace(/\s+/g, " ").trim() : out.join("\n");
+    return { value: joined, consumed };
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    if (!raw || !raw.trim() || raw.trim().startsWith("#")) continue;
+    const indent = raw.match(/^\s*/)[0].length;
+    let line = raw.trim();
+
+    while (stack.length > 1 && indent <= stack[stack.length - 1].indent) stack.pop();
+    const top = stack[stack.length - 1];
+
+    if (line.startsWith("-")) {
+      const arr = ensureArrayContainer(top);
+      const item = line.replace(/^-+\s?/, "");
+      if (item === "") {
+        const obj = {};
+        arr.push(obj);
+        stack.push({ indent, container: obj, type: "object", parent: arr, key: null });
+        continue;
+      }
+
+      const kvMatch = item.match(/^([^:]+):\s*(.*)$/);
+      if (kvMatch) {
+        const key = kvMatch[1].trim();
+        const valuePart = kvMatch[2];
+        const obj = {};
+        if (valuePart === "") {
+          obj[key] = {};
+          arr.push(obj);
+          stack.push({ indent, container: obj[key], type: "object", parent: obj, key });
+          continue;
+        }
+        if (valuePart === "|" || valuePart === ">") {
+          const block = parseBlockScalar(i, indent, valuePart);
+          i += block.consumed;
+          obj[key] = block.value;
+          arr.push(obj);
+          continue;
+        }
+        obj[key] = parseYamlScalar(valuePart);
+        arr.push(obj);
+        continue;
+      }
+
+      if (item === "|" || item === ">") {
+        const block = parseBlockScalar(i, indent, item);
+        i += block.consumed;
+        arr.push(block.value);
+        continue;
+      }
+
+      arr.push(parseYamlScalar(item));
+      continue;
+    }
+
+    const match = line.match(/^([^:]+):\s*(.*)$/);
+    if (!match) continue;
+    const key = match[1].trim();
+    const valuePart = match[2];
+    const parent = top.container;
+
+    if (valuePart === "") {
+      parent[key] = {};
+      stack.push({ indent, container: parent[key], type: "object", parent, key });
+      continue;
+    }
+
+    if (valuePart === "|" || valuePart === ">") {
+      const block = parseBlockScalar(i, indent, valuePart);
+      i += block.consumed;
+      parent[key] = block.value;
+      continue;
+    }
+
+    parent[key] = parseYamlScalar(valuePart);
+  }
+
+  return root;
+}
+
 async function parseSwagger(text) {
+  const raw = String(text || "").trim();
+  if (raw.startsWith("{") || raw.startsWith("[")) {
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      // fallthrough to YAML
+    }
+  }
   try {
-    return JSON.parse(text);
+    return JSON.parse(raw);
   } catch (e) {
-    throw new Error("Nije moguce parsirati JSON");
+    try {
+      return parseYamlBasic(raw);
+    } catch (err) {
+      throw new Error("Nije moguce parsirati JSON/YAML");
+    }
   }
 }
 
@@ -422,6 +605,10 @@ async function runTest(path, method) {
     output.innerHTML = "Ne mogu odrediti baseUrl.";
     return;
   }
+  if (!IS_LOCAL_BACKEND && !getSavedApiKey()) {
+    output.innerHTML = "Unesi API key prije pokretanja testa.";
+    return;
+  }
 
   // Rate-limit: allow a small number of runs per minute per endpoint
   try {
@@ -446,6 +633,10 @@ async function runTest(path, method) {
 
   try {
     const headers = { "Content-Type": "application/json" };
+    const savedKey = getSavedApiKey();
+    if (!IS_LOCAL_BACKEND && savedKey) {
+      headers[API_KEY_HEADER || "x-api-key"] = savedKey;
+    }
     const options = { connections: DEFAULT_CONCURRENCY, duration: DEFAULT_DURATION };
 
     async function sendRunTest() {

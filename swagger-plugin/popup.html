@@ -17,8 +17,11 @@
     <section class="card controls">
       <label for="swaggerUrl">Unesi Swagger URL</label>
       <input id="swaggerUrl" type="text" placeholder="https://petstore.swagger.io/v2/swagger.json">
-      <label for="swaggerFile" class="small-label file-label">ili iz JSON fajla</label>
-      <input id="swaggerFile" class="file-input" type="file" accept=".json">
+      <label for="swaggerFile" class="small-label file-label">ili iz JSON/YAML fajla</label>
+      <input id="swaggerFile" class="file-input" type="file" accept=".json,.yaml,.yml">
+      <label for="apiKeyInput" class="small-label file-label">API key</label>
+      <input id="apiKeyInput" class="file-input" type="password" placeholder="Unesi API key">
+      <button id="saveApiKey" class="secondary-btn">Sacuvaj API key</button>
       <button id="loadSwagger">Ucitaj Swagger</button>
     </section>
 

@@ -21,7 +21,8 @@
   },
   "permissions": ["storage"],
   "host_permissions": [
-    "https://*/*"
+    "https://*/*",
+    "http://*/*"
   ],
   "optional_host_permissions": [
     "http://localhost:3000/*"
