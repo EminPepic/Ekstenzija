@@ -4,6 +4,8 @@
   "short_name": "Swagger Tester",
   "version": "1.0.1",
   "description": "Automatsko testiranje REST servisa putem Swagger/OpenAPI dokumentacije",
+  "homepage_url": "https://eminpepic.github.io/Ekstenzija/",
+  "privacy_policy": "https://eminpepic.github.io/Ekstenzija/privacy-policy.html",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

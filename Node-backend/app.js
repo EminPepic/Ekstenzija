@@ -11,6 +11,7 @@ const ALLOWED_ORIGINS = String(process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
+const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 30000);
 
 let activeTests = 0;
 const MAX_ACTIVE_TESTS = 2; 
@@ -45,6 +46,23 @@ function sanitizeString(s, maxLen = 1024) {
   t = t.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   if (t.length > maxLen) t = t.slice(0, maxLen);
   return t;
+}
+
+async function fetchWithTimeout(url, options, timeoutMs = FETCH_TIMEOUT_MS) {
+  if (typeof AbortController !== "undefined") {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...(options || {}), signal: controller.signal });
+    } finally {
+      clearTimeout(id);
+    }
+  }
+
+  return await Promise.race([
+    fetch(url, options),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Fetch timeout")), timeoutMs)),
+  ]);
 }
 
 function sanitizeObject(obj, depth = 0) {
@@ -954,7 +972,7 @@ app.post("/run-test", runTestLimiter, async (req, res) => {
       const baselineUrl = buildUrl(baseUrl, defaultPath, queryNames, "test", useProbeQuery);
       const baselineOptions = buildRequest(normalizedMethod, mode, "test", endpointContext);
       const baselineStartedAt = Date.now();
-      const baselineResponse = await fetch(baselineUrl, baselineOptions);
+      const baselineResponse = await fetchWithTimeout(baselineUrl, baselineOptions);
       const baselineText = await baselineResponse.text().catch(() => "");
       baseline = { statusCode: baselineResponse.status, text: baselineText, elapsedMs: Date.now() - baselineStartedAt };
     } catch (e) {
@@ -973,7 +991,7 @@ app.post("/run-test", runTestLimiter, async (req, res) => {
         const targetUrl = buildUrl(baseUrl, resolvedPath, queryNames, test.value, useProbeQuery);
         const options = buildRequest(normalizedMethod, mode, test.value, endpointContext);
         const startedAt = Date.now();
-        const response = await fetch(targetUrl, options);
+        const response = await fetchWithTimeout(targetUrl, options);
         const text = await response.text().catch(() => "");
         const elapsedMs = Date.now() - startedAt;
         const verdict = evaluate({

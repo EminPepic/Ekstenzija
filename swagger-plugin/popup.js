@@ -450,14 +450,33 @@ async function runTest(path, method) {
     // no API key included in public build
     const options = { connections: DEFAULT_CONCURRENCY, duration: DEFAULT_DURATION };
 
-    const response = await fetch(RUN_TEST_URL, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ baseUrl, path, method, endpointContext, options }),
-    });
+    async function sendRunTest() {
+      return await fetch(RUN_TEST_URL, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ baseUrl, path, method, endpointContext, options }),
+      });
+    }
+
+    async function wait(ms) {
+      return new Promise((res) => setTimeout(res, ms));
+    }
+
+    let response = await sendRunTest();
 
     if (!response.ok) {
       let backendMessage = `Backend greska (HTTP ${response.status})`;
+      if ([502, 503, 504].includes(response.status)) {
+        output.innerHTML = "Backend se budi (free hosting). Sacekaj malo...";
+        await wait(25000);
+        response = await sendRunTest();
+        if (response.ok) {
+          const result = await response.json();
+          updateTimeline(result);
+          return;
+        }
+        backendMessage = "Backend nije dostupan ili se budi (free hosting). Pokusaj ponovo za 30-60 sekundi.";
+      }
       try {
         const errData = await response.json();
         if (errData?.error) backendMessage = errData.error;
@@ -468,7 +487,25 @@ async function runTest(path, method) {
     const result = await response.json();
     updateTimeline(result);
   } catch (err) {
-    output.innerHTML = `Test nije pokrenut: ${escapeHtml(err?.message || "Backend nije pokrenut.")}`;
+    const rawMsg = String(err?.message || "Backend nije pokrenut.");
+    const isNetwork =
+      /Failed to fetch|NetworkError|timeout|Fetch timeout|ECONNREFUSED|ENOTFOUND/i.test(rawMsg);
+    if (isNetwork) {
+      try {
+        output.innerHTML = "Backend se budi (free hosting). Sacekaj malo...";
+        await wait(25000);
+        const retryResponse = await sendRunTest();
+        if (retryResponse.ok) {
+          const result = await retryResponse.json();
+          updateTimeline(result);
+          return;
+        }
+      } catch (e) {}
+    }
+    const friendly = isNetwork
+      ? "Backend nije dostupan ili se budi (free hosting). Pokusaj ponovo za 30-60 sekundi."
+      : rawMsg;
+    output.innerHTML = `Test nije pokrenut: ${escapeHtml(friendly)}`;
   } finally {
     setRunState(false);
   }
