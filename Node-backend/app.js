@@ -22,9 +22,9 @@ const MAX_TESTS_PER_KEY = Number(process.env.MAX_TESTS_PER_KEY || 10);
 const keyHits = new Map();
 
 const runTestLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minuta
-  max: 5,              // max 5 testova po minuti po IP
-  message: { error: "Previše zahtjeva. Pokušaj kasnije." }
+  windowMs: 60 * 1000, // 1 minute
+  max: 5,              // max 5 tests per minute per IP
+  message: { error: "Too many requests. Please try again later." }
 });
 
 if (ALLOWED_ORIGINS.length > 0) {
@@ -56,7 +56,7 @@ function isLocalRequest(req) {
 function requireApiKeyIfConfigured(req, res, next) {
   if (isLocalRequest(req)) return next();
   if (!API_KEY) {
-    return res.status(403).json({ error: "API_KEY nije postavljen za vanjske zahtjeve." });
+    return res.status(403).json({ error: "API_KEY is not set for external requests." });
   }
   const provided = String(req.get(API_KEY_HEADER) || "").trim();
   if (provided !== API_KEY) {
@@ -67,7 +67,7 @@ function requireApiKeyIfConfigured(req, res, next) {
   const bucket = keyHits.get(key) || [];
   const fresh = bucket.filter((ts) => now - ts < KEY_WINDOW_MS);
   if (fresh.length >= MAX_TESTS_PER_KEY) {
-    return res.status(429).json({ error: "Previše zahtjeva za ovaj API key. Pokušaj kasnije." });
+    return res.status(429).json({ error: "Too many requests for this API key. Please try again later." });
   }
   fresh.push(now);
   keyHits.set(key, fresh);
@@ -544,22 +544,22 @@ function detectApplicationLevelBlock(responseText) {
     "nedozvolj",
     "zabranjen",
     "odbijen",
-    "previše zahtjeva",
-    "previse zahtjeva",
+    "too many requests",
+    "too many requests",
   ];
 
   if (phrases.some((p) => lowered.includes(p))) {
-    return { blocked: true, reason: "Tekst odgovora ukazuje na odbijanje zahtjeva." };
+    return { blocked: true, reason: "Response text indicates the request was blocked." };
   }
 
   const json = tryParseJson(text);
   if (json && typeof json === "object") {
     if (json.ok === false || json.success === false || json.blocked === true || json.allowed === false) {
-      return { blocked: true, reason: "JSON polja ukazuju da je zahtjev odbijen." };
+      return { blocked: true, reason: "JSON fields indicate the request was blocked." };
     }
     const errText = String(json.error || json.message || "").toLowerCase();
     if (errText && phrases.some((p) => errText.includes(p))) {
-      return { blocked: true, reason: "JSON poruka ukazuje na odbijanje zahtjeva." };
+      return { blocked: true, reason: "JSON message indicates the request was blocked." };
     }
   }
 
@@ -578,8 +578,8 @@ function classify2xxWithBaseline({ response, responseText, baseline, method, val
       status: "Failed",
       findingType: "Confirmed Vulnerability",
       severity: "Critical",
-      note: `Moguca time-based injekcija (odziv ${elapsedMs} ms, baseline ${baselineMs} ms).`,
-      message: "Payload sa vremenskom injekcijom je izazvao znacajno kasnjenje.",
+      note: `Possible time-based injection (response ${elapsedMs} ms, baseline ${baselineMs} ms).`,
+      message: "Time-based payload caused a significant delay.",
     });
   }
 
@@ -589,16 +589,16 @@ function classify2xxWithBaseline({ response, responseText, baseline, method, val
         status: "Failed",
         findingType: "Possible Vulnerability",
         severity: "Medium",
-        note: "Nema baseline-a, a sumnjiv payload je dobio 2xx bez signala blokiranja.",
-        message: "API je vjerovatno obradio sumnjiv payload bez eksplicitne zastite.",
+        note: "No baseline, and a suspicious payload returned 2xx without blocking signals.",
+        message: "The API likely processed a suspicious payload without explicit protection.",
       });
     }
     return buildVerdict({
       status: "Inconclusive",
       findingType: "Unclassified Behavior",
       severity: "Informational",
-      note: "Nema baseline poredenja za preciznu klasifikaciju 2xx odgovora.",
-      message: "Rezultat je neodredjen bez referentnog odgovora.",
+      note: "No baseline comparison for precise classification of 2xx response.",
+      message: "Result is inconclusive without a reference response.",
     });
   }
 
@@ -612,8 +612,8 @@ function classify2xxWithBaseline({ response, responseText, baseline, method, val
       status: "Passed",
       findingType: "Input Ignored / Safe Handling",
       severity: "Low",
-      note: "Nema eksplicitnog odbijanja, ali odgovor je identican baseline-u.",
-      message: "Payload je najvjerovatnije ignorisan i nije pokazao opasnu obradu.",
+      note: "No explicit rejection, but the response matches the baseline.",
+      message: "Payload was likely ignored and did not show dangerous handling.",
     });
   }
 
@@ -622,8 +622,8 @@ function classify2xxWithBaseline({ response, responseText, baseline, method, val
       status: "Passed",
       findingType: "Request Blocked",
       severity: "Low",
-      note: `Server je presao sa baseline statusa ${baselineStatus} na eksplicitno odbijanje ${currentStatus}.`,
-      message: "Payload je prepoznat i blokiran.",
+      note: `Server shifted from baseline status ${baselineStatus} to explicit rejection ${currentStatus}.`,
+      message: "Payload was detected and blocked.",
     });
   }
 
@@ -632,8 +632,8 @@ function classify2xxWithBaseline({ response, responseText, baseline, method, val
       status: "Failed",
       findingType: "Possible Vulnerability",
       severity: "Medium",
-      note: "Sumnjiv payload je promijenio write odgovor bez jasnog blokiranja.",
-      message: "POST/PUT/PATCH je obradio rizican unos i vratio izmijenjen odgovor.",
+      note: "Suspicious payload changed the write response without clear blocking.",
+      message: "POST/PUT/PATCH processed risky input and returned a modified response.",
     });
   }
 
@@ -642,8 +642,8 @@ function classify2xxWithBaseline({ response, responseText, baseline, method, val
       status: "Failed",
       findingType: "Possible Vulnerability",
       severity: "Medium",
-      note: "Sumnjiv payload je dobio 2xx i izmijenio odgovor bez jasnog blokiranja.",
-      message: "API je vjerovatno obradio sumnjiv unos umjesto da ga odbije.",
+      note: "Suspicious payload returned 2xx and modified the response without clear blocking.",
+      message: "The API likely processed suspicious input instead of rejecting it.",
     });
   }
 
@@ -652,8 +652,8 @@ function classify2xxWithBaseline({ response, responseText, baseline, method, val
       status: "Passed",
       findingType: "Safe 2xx Variation",
       severity: "Low",
-      note: "Odgovor se razlikuje od baseline-a, ali bez signala exploita.",
-      message: "API je odgovorio drugacije, bez direktnih indikatora ranjivosti.",
+      note: "Response differs from baseline, but without exploit signals.",
+      message: "The API responded differently without direct vulnerability indicators.",
     });
   }
 
@@ -661,28 +661,28 @@ function classify2xxWithBaseline({ response, responseText, baseline, method, val
     status: "Inconclusive",
     findingType: "Reflected/Changed Response",
     severity: "Informational",
-    note: "Odgovor se razlikuje od baseline-a bez jasnog signala blokiranja ili exploita.",
-    message: "Potrebna je dodatna validacija logova ili poslovne logike endpointa.",
+    note: "Response differs from baseline without clear blocking or exploit signals.",
+    message: "Additional validation of logs or business logic is needed.",
   });
 }
 
 function evaluate({ value, response, responseText, baseline, method, elapsedMs }) {
   const methodName = String(method || "").toUpperCase();
   const contentType = getResponseContentType(response);
-  if (!response) return buildVerdict({ status: "Failed", findingType: "Transport Error", severity: "Medium", note: "Nema odgovora servera.", message: "Server nije odgovorio." });
-  if (response.status >= 500) return buildVerdict({ status: "Failed", findingType: "Server Error", severity: "High", note: "Server je pao (5xx).", message: "Server error - payload izazvao gresku." });
-  if (isExplicitBlockStatus(response.status)) return buildVerdict({ status: "Passed", findingType: "Request Blocked", severity: "Low", note: `Server je eksplicitno odbio payload (${response.status}).`, message: "Payload blokiran, zastita radi." });
-  if (response.status >= 400 && response.status < 500) return buildVerdict({ status: "Passed", findingType: "Request Blocked", severity: "Low", note: `Server je odbio payload (${response.status}).`, message: "Payload blokiran." });
+  if (!response) return buildVerdict({ status: "Failed", findingType: "Transport Error", severity: "Medium", note: "No server response.", message: "Server did not respond." });
+  if (response.status >= 500) return buildVerdict({ status: "Failed", findingType: "Server Error", severity: "High", note: "Server error (5xx).", message: "Server error - payload triggered an error." });
+  if (isExplicitBlockStatus(response.status)) return buildVerdict({ status: "Passed", findingType: "Request Blocked", severity: "Low", note: `Server explicitly rejected the payload (${response.status}).`, message: "Payload blocked, protection works." });
+  if (response.status >= 400 && response.status < 500) return buildVerdict({ status: "Passed", findingType: "Request Blocked", severity: "Low", note: `Server rejected the payload (${response.status}).`, message: "Payload blocked." });
   if (response.status >= 300 && response.status < 400) {
     const redirectVerdict = ["POST", "PUT", "PATCH"].includes(methodName) ? "Inconclusive" : "Passed";
     return buildVerdict({
       status: redirectVerdict,
       findingType: redirectVerdict === "Passed" ? "Redirect Handling" : "Unclassified Redirect",
       severity: "Informational",
-      note: `Server je vratio redirect (${response.status}).`,
+      note: `Server returned a redirect (${response.status}).`,
       message: redirectVerdict === "Passed"
-        ? "Payload nije direktno prihvacen kao uspjesan input."
-        : "Potrebno je provjeriti redirect destinaciju i backend tok.",
+        ? "Payload was not directly accepted as successful input."
+        : "Check the redirect destination and backend flow.",
     });
   }
   if (response.status >= 200 && response.status < 300) {
@@ -691,8 +691,8 @@ function evaluate({ value, response, responseText, baseline, method, elapsedMs }
         status: "Failed",
         findingType: "Possible Vulnerability",
         severity: "Medium",
-        note: "Detektovani SQL error markeri u odgovoru.",
-        message: "Odgovor sadrzi poruke koje ukazuju na mogucu SQL injekciju.",
+        note: "SQL error markers detected in the response.",
+        message: "Response contains messages that indicate possible SQL injection.",
       });
     }
 
@@ -703,7 +703,7 @@ function evaluate({ value, response, responseText, baseline, method, elapsedMs }
         findingType: "Request Blocked",
         severity: "Low",
         note: appBlock.reason,
-        message: "Aplikacija je odbila payload iako je HTTP status 2xx.",
+        message: "Application blocked the payload even though HTTP status is 2xx.",
       });
     }
 
@@ -714,7 +714,7 @@ function evaluate({ value, response, responseText, baseline, method, elapsedMs }
         findingType: "Confirmed Vulnerability",
         severity: "Critical",
         note: exploitEvidence.reason,
-        message: "Odgovor sadrzi jake dokaze da je payload izvrsen.",
+        message: "Response contains strong evidence that the payload executed.",
       });
     }
 
@@ -723,8 +723,8 @@ function evaluate({ value, response, responseText, baseline, method, elapsedMs }
         status: "Passed",
         findingType: "Escaped Reflection",
         severity: "Low",
-        note: "Payload je reflektovan ali escaped u odgovoru.",
-        message: "Refleksija izgleda bezbjedno (output escaping).",
+        note: "Payload was reflected but escaped in the response.",
+        message: "Reflection appears safe (output escaping).",
       });
     }
 
@@ -735,8 +735,8 @@ function evaluate({ value, response, responseText, baseline, method, elapsedMs }
           status: "Failed",
           findingType: "Possible Vulnerability",
           severity: "High",
-          note: "XSS payload je reflektovan u HTML odgovoru bez escaping-a.",
-          message: "Postoji visok rizik reflected XSS ranjivosti.",
+          note: "XSS payload was reflected in HTML without escaping.",
+          message: "High risk of reflected XSS vulnerability.",
         });
       }
 
@@ -745,8 +745,8 @@ function evaluate({ value, response, responseText, baseline, method, elapsedMs }
           status: "Failed",
           findingType: "Possible Vulnerability",
           severity: "Medium",
-          note: "Sumnjiv payload je reflektovan bez jasnog blokiranja.",
-          message: "API je vratio rizican input; moguca nesigurna obrada unosa.",
+          note: "Suspicious payload was reflected without clear blocking.",
+          message: "API returned risky input; possible unsafe input handling.",
         });
       }
 
@@ -754,13 +754,13 @@ function evaluate({ value, response, responseText, baseline, method, elapsedMs }
         status: "Inconclusive",
         findingType: "Reflected Input",
         severity: "Informational",
-        note: "Payload je reflektovan u odgovoru.",
-        message: "Input je vracen u response; bez dodatnih dokaza ovo nije automatski exploit.",
+        note: "Payload was reflected in the response.",
+        message: "Input was returned in the response; without more evidence this is not automatically an exploit.",
       });
     }
     return classify2xxWithBaseline({ response, responseText, baseline, method: methodName, value, elapsedMs });
   }
-  return buildVerdict({ status: "Failed", findingType: "Unexpected Response", severity: "Medium", note: `Neocekivan status (${response.status}).`, message: "Neispravan odgovor servera." });
+  return buildVerdict({ status: "Failed", findingType: "Unexpected Response", severity: "Medium", note: `Unexpected status (${response.status}).`, message: "Invalid server response." });
 }
 
 function runAutocannon(options) {
@@ -809,7 +809,7 @@ function generateAnalysisSummary({ summary, performance, findings }) {
   if (failedRatio >= 0.5) securityRiskLevel = "High";
   else if (failedRatio > 0 || inconclusiveRatio > 0 || securityScore < 100) securityRiskLevel = "Medium";
 
-  // securityLevel prikazuje jacinu zastite (High = dobra sigurnost, Low = slaba sigurnost)
+  // securityLevel indicates protection strength (High = good security, Low = weak security)
   let securityLevel = "High";
   if (securityRiskLevel === "High") securityLevel = "Low";
   else if (securityRiskLevel === "Medium") securityLevel = "Medium";
@@ -818,9 +818,9 @@ function generateAnalysisSummary({ summary, performance, findings }) {
   if (p99 >= 1200 || errorRate >= 1.0) performanceLevel = "Poor";
   else if (p99 >= 500 || avgLatency >= 250 || reqPerSec < 10) performanceLevel = "Moderate";
 
-  let priority = "Nizak";
-  if (securityRiskLevel === "High" || performanceLevel === "Poor") priority = "Visok";
-  else if (securityRiskLevel === "Medium" || performanceLevel === "Moderate") priority = "Srednji";
+  let priority = "Low";
+  if (securityRiskLevel === "High" || performanceLevel === "Poor") priority = "High";
+  else if (securityRiskLevel === "Medium" || performanceLevel === "Moderate") priority = "Medium";
 
   const failedByType = {
     sql: findingsList.filter((f) => f?.status === "Failed" && /sqli|sql/i.test(String(f?.testType || ""))).length,
@@ -832,20 +832,20 @@ function generateAnalysisSummary({ summary, performance, findings }) {
   const headline = pickPhrase(
     securityRiskLevel === "High"
       ? [
-          "Detektovan je visok sigurnosni rizik endpointa",
-          "Rezultati ukazuju na kriticne slabosti zastite ulaza",
-          "Endpoint zahtijeva hitan sigurnosni hardening",
+          "High security risk detected for this endpoint",
+          "Results indicate critical weaknesses in input protection",
+          "Endpoint requires urgent security hardening",
         ]
       : securityRiskLevel === "Medium"
       ? [
-          "Detektovan je srednji sigurnosni rizik endpointa",
-          "Postoje sigurnosne slabosti koje treba sanirati",
-          "Endpoint trazi dodatno ucvrscivanje validacije",
+          "Medium security risk detected for this endpoint",
+          "Security weaknesses were found and should be remediated",
+          "Endpoint needs additional validation hardening",
         ]
       : [
-          "Sigurnosni profil endpointa je stabilan",
-          "Nisu detektovana kriticna sigurnosna odstupanja",
-          "Endpoint prolazi definisane sigurnosne provjere",
+          "Endpoint security profile is stable",
+          "No critical security deviations detected",
+          "Endpoint passes the defined security checks",
         ],
     seed
   );
@@ -860,35 +860,35 @@ function generateAnalysisSummary({ summary, performance, findings }) {
     failedRatio >= 0.66
       ? pickPhrase(
           [
-            `Vecina sigurnosnih testova je pala (${failed}/${total}), sto ukazuje na nedovoljnu validaciju i sanitizaciju unosa.`,
-            `Fail stopa je visoka (${failed}/${total}), a dominantni rizik dolazi iz kategorije ${dominantVector}.`,
-            `Endpoint trenutno prihvata rizicne payload-e (${failed}/${total} fail), pa je potrebna hitna korekcija kontrola unosa.`,
+            `Most security tests failed (${failed}/${total}), indicating insufficient input validation and sanitization.`,
+            `Failure rate is high (${failed}/${total}), with dominant risk in ${dominantVector}.`,
+            `Endpoint currently accepts risky payloads (${failed}/${total} failed), requiring urgent input control fixes.`,
           ],
           seed + failedByType.sql + failedByType.xss
         )
       : failedRatio === 0 && inconclusiveRatio > 0
       ? pickPhrase(
           [
-            `Nema direktnog pada testova, ali ${inconclusive}/${total} rezultata je neodredjeno i zahtijeva dodatnu provjeru.`,
-            `Detektovani su neodredjeni ishodi (${inconclusive}/${total}), bez jasnog dokaza blokiranja ili exploita.`,
-            `Rezultat je djelimicno neodredjen (${inconclusive}/${total}), pa su potrebne dodatne backend provjere.`,
+            `No direct test failures, but ${inconclusive}/${total} results are inconclusive and need additional review.`,
+            `Inconclusive outcomes detected (${inconclusive}/${total}) without clear evidence of blocking or exploit.`,
+            `Result is partially inconclusive (${inconclusive}/${total}); additional backend checks are needed.`,
           ],
           seed + 9
         )
       : failedRatio > 0
       ? pickPhrase(
           [
-            `Dio sigurnosnih testova nije prosao (${failed}/${total}); preporucena je ciljna dorada validacije ulaza.`,
-            `Detektovane su parcijalne slabosti (${failed}/${total} fail), bez potpunog kompromisa svih testova.`,
-            `Rezultat je mjesovit (${failed}/${total}); endpoint je funkcionalan, ali ima konkretne sigurnosne rupe.`,
+            `Some security tests failed (${failed}/${total}); targeted input validation improvements are recommended.`,
+            `Partial weaknesses detected (${failed}/${total} failed) without full compromise of all tests.`,
+            `Mixed result (${failed}/${total}); endpoint works but has specific security gaps.`,
           ],
           seed + 5
         )
       : pickPhrase(
           [
-            "Sigurnosni rezultat je dobar: nisu uocena odstupanja u pokrivenim scenarijima testiranja.",
-            "Endpoint je odbio testirane rizicne obrasce i zadrzao dobar sigurnosni profil.",
-            "Osnovne sigurnosne kontrole djeluju pouzdano i rezultat ukazuje na dobru sigurnost endpointa.",
+            "Security result is good: no deviations found in covered test scenarios.",
+            "Endpoint rejected tested risky patterns and maintained a good security profile.",
+            "Core security controls appear reliable and results indicate good endpoint security.",
           ],
           seed + 3
         );
@@ -897,62 +897,62 @@ function generateAnalysisSummary({ summary, performance, findings }) {
     performanceLevel === "Poor"
       ? pickPhrase(
           [
-            `Performanse su nestabilne pod opterecenjem (P99 ${p99.toFixed(0)} ms), sa izrazenim kasnim odzivom.`,
-            `Uocena je degradacija odziva pri vrhu opterecenja; tail latency je povisena.`,
-            `Profil performansi je slabiji za vrsne zahtjeve i trazi optimizaciju obrade.`,
+            `Performance is unstable under load (P99 ${p99.toFixed(0)} ms) with elevated tail latency.`,
+            `Response degradation observed under peak load; tail latency is higher.`,
+            `Performance profile is weak for peak requests and needs processing optimization.`,
           ],
           seed + 11
         )
       : performanceLevel === "Moderate"
       ? pickPhrase(
           [
-            "Performanse su prihvatljive uz povremene oscilacije, pa je preporucen kontinuiran monitoring.",
-            "Servis je stabilan za osnovni load, ali postoji prostor za bolji P99 odziv.",
-            "Nema kriticnih gresaka, ali je preporucen tuning za ujednaceniji odziv.",
+            "Performance is acceptable with occasional fluctuations; continuous monitoring is recommended.",
+            "Service is stable for basic load, but there is room for better P99 response.",
+            "No critical errors, but tuning is recommended for more consistent response.",
           ],
           seed + 17
         )
       : pickPhrase(
           [
-            "Performanse su stabilne i konzistentne za trenutni profil opterecenja.",
-            "Odziv servisa je uredan, bez znacajne degradacije tokom testa.",
-            "Nema indikacije ozbiljnog uskog grla u performansama za ovaj scenario.",
+            "Performance is stable and consistent for the current load profile.",
+            "Service response is healthy without significant degradation during the test.",
+            "No indication of a serious performance bottleneck for this scenario.",
           ],
           seed + 23
         );
 
   const recommendations = [];
-  if (failedByType.sql > 0) recommendations.push("Prioritet 1: uvesti striktne server-side validacije i schema enforcement za query/body parametre.");
-  if (failedByType.xss > 0) recommendations.push("Prioritet 1: onemoguciti refleksiju nestrukturisanog unosa i primijeniti output escaping.");
-  if (failedByType.overlong > 0) recommendations.push("Prioritet 2: postaviti limit velicine payload-a i filtrirati traversal obrasce.");
-  if (inconclusive > 0) recommendations.push("Prioritet 2: pregledati backend logove i pravila validacije za neodredjene test ishode.");
-  if (performanceLevel !== "Good" && failed > 0) recommendations.push("Prioritet 2: optimizovati kriticne rute radi smanjenja P99 latencije.");
-  if (performanceLevel !== "Good" && failed === 0) recommendations.push("Opcionalno: optimizovati P99 latenciju radi stabilnijeg odziva pod opterecenjem.");
-  if (recommendations.length === 0) recommendations.push("Zadrzati postojece kontrole i nastaviti periodican security/performance retest.");
+  if (failedByType.sql > 0) recommendations.push("Priority 1: add strict server-side validation and schema enforcement for query/body parameters.");
+  if (failedByType.xss > 0) recommendations.push("Priority 1: prevent raw input reflection and apply output escaping.");
+  if (failedByType.overlong > 0) recommendations.push("Priority 2: limit payload size and filter traversal patterns.");
+  if (inconclusive > 0) recommendations.push("Priority 2: review backend logs and validation rules for inconclusive tests.");
+  if (performanceLevel !== "Good" && failed > 0) recommendations.push("Priority 2: optimize critical routes to reduce P99 latency.");
+  if (performanceLevel !== "Good" && failed === 0) recommendations.push("Optional: optimize P99 latency for more stable response under load.");
+  if (recommendations.length === 0) recommendations.push("Keep existing controls and continue periodic security/performance retesting.");
 
   const conclusion = pickPhrase(
-    priority === "Visok"
+    priority === "High"
       ? [
-          "Preporucena je hitna korekcija prije sire upotrebe endpointa.",
-          "Potreban je prioritetan remediation plan prije produkcijskog koristenja.",
-          "Endpoint nije spreman za produkciju bez dodatnih zastitnih mjera.",
+          "Urgent remediation is recommended before wider endpoint use.",
+          "A priority remediation plan is required before production use.",
+          "Endpoint is not ready for production without additional safeguards.",
         ]
       : failed === 0 && inconclusive === 0
       ? [
-          "Sigurnost endpointa je dobra za pokrivene test scenarije; preporucen je redovan monitoring.",
-          "Endpoint pokazuje dobar sigurnosni profil uz nastavak periodicnog testiranja.",
-          "Rezultat je dobar i upotrebljiv uz standardne operativne kontrole.",
+          "Endpoint security is good for covered test scenarios; regular monitoring is recommended.",
+          "Endpoint shows a good security profile with continued periodic testing.",
+          "Result is good and usable with standard operational controls.",
         ]
       : failed === 0 && inconclusive > 0
       ? [
-          "Nema direktnih sigurnosnih padova, ali neodredjeni ishodi zahtijevaju dodatnu verifikaciju.",
-          "Rezultat je umjereno pouzdan; preporucen je pregled logova i dopunski retest.",
-          "Endpoint je potencijalno stabilan, ali neodredjeni signali traze dublju provjeru.",
+          "No direct security failures, but inconclusive outcomes require additional verification.",
+          "Result is moderately reliable; log review and retest are recommended.",
+          "Endpoint may be stable, but inconclusive signals need deeper review.",
         ]
       : [
-          "Stanje je upotrebljivo uz redovan monitoring i periodican retest.",
-          "Endpoint je stabilan uz preporuku kontinuiranog testiranja.",
-          "Rezultat je prihvatljiv za testno okruzenje uz standardne kontrole.",
+          "State is usable with regular monitoring and periodic retest.",
+          "Endpoint is stable with a recommendation for continuous testing.",
+          "Result is acceptable for a test environment with standard controls.",
         ],
     seed + 7
   );
@@ -975,7 +975,7 @@ function generateAnalysisSummary({ summary, performance, findings }) {
 app.post("/run-test", runTestLimiter, requireApiKeyIfConfigured, async (req, res) => {
   if (activeTests >= MAX_ACTIVE_TESTS) {
     return res.status(429).json({
-      error: "Previše aktivnih testova. Pokušaj kasnije."
+      error: "Too many active tests. Please try again later."
     });
   }
 
@@ -988,9 +988,9 @@ app.post("/run-test", runTestLimiter, requireApiKeyIfConfigured, async (req, res
     const method = sanitizeString(raw.method || "", 10).toUpperCase();
     const endpointContext = sanitizeObject(raw.endpointContext || {});
 
-    if (!baseUrl || !path || !method) return res.status(400).json({ error: "Nedostaju parametri" });
-    if (!isValidUrl(baseUrl)) return res.status(400).json({ error: "Nevalidan baseUrl" });
-    if (!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].includes(method)) return res.status(400).json({ error: "Nevalidna metoda" });
+    if (!baseUrl || !path || !method) return res.status(400).json({ error: "Missing parameters" });
+    if (!isValidUrl(baseUrl)) return res.status(400).json({ error: "Invalid baseUrl" });
+    if (!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].includes(method)) return res.status(400).json({ error: "Invalid method" });
 
     const normalizedMethod = method.toUpperCase();
     const mode = chooseMode(normalizedMethod, endpointContext);
@@ -1058,7 +1058,7 @@ app.post("/run-test", runTestLimiter, requireApiKeyIfConfigured, async (req, res
           status: "Failed",
           findingType: "Transport Error",
           severity: "Medium",
-          note: "Greska pri konekciji ili obradi payload-a.",
+          note: "Connection or payload processing error.",
           response: { message: err.message, raw: "", statusCode: null },
           timestamp: new Date().toISOString(),
           url: baseTargetUrl,
@@ -1182,7 +1182,7 @@ app.post("/run-test", runTestLimiter, requireApiKeyIfConfigured, async (req, res
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Greška na serveru." });
+    res.status(500).json({ error: "Server error." });
   } finally {
     activeTests--;
   }

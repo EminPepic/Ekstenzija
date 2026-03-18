@@ -83,7 +83,8 @@ h2 {
 
 .output {
   background: #ffffff;
-  border-color: #e1e7ea;
+  border: 0;
+  box-shadow: none;
 }
 
 .timeline {
@@ -169,6 +170,154 @@ input:disabled {
 .secondary-btn:hover {
   background: linear-gradient(135deg, #255f4f 0%, #1f4e41 100%);
   box-shadow: 0 10px 18px rgba(31, 78, 65, 0.3);
+}
+
+.endpoint-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.method-select-label {
+  margin: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+}
+
+.method-select {
+  width: 68%;
+  border-radius: 18px;
+  padding: 6px 34px 6px 12px;
+  border: 1px solid #bfe1d6;
+  background: linear-gradient(135deg, #e8f7f2 0%, #ffffff 100%);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text);
+  outline: none;
+  box-shadow: 0 8px 12px rgba(15, 118, 110, 0.16);
+  text-align: center;
+  position: relative;
+}
+
+.method-select:hover {
+  border-color: #2abf9e;
+  box-shadow: 0 10px 14px rgba(15, 118, 110, 0.22);
+  background: linear-gradient(135deg, #def3ec 0%, #ffffff 100%);
+  transform: translateY(-1px);
+}
+
+.method-select:focus {
+  border-color: #2abf9e;
+  box-shadow: 0 0 0 3px rgba(42, 191, 158, 0.2);
+}
+
+.method-dropdown {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  position: relative;
+}
+
+.select-caret {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid #2abf9e;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.method-options {
+  position: absolute;
+  top: calc(100% + 8px);
+  width: 68%;
+  background: #ffffff;
+  border: 1px solid #d5e6e0;
+  border-radius: 14px;
+  box-shadow: 0 16px 30px rgba(16, 28, 33, 0.16);
+  padding: 6px;
+  display: none;
+  z-index: 5;
+}
+
+.method-dropdown.is-open .method-options {
+  display: block;
+}
+
+.method-option {
+  padding: 8px 10px;
+  border-radius: 10px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.method-option:hover {
+  background: #e8f7f2;
+}
+
+.method-option.is-selected {
+  background: linear-gradient(135deg, #e0f3ec 0%, #ffffff 100%);
+  border: 1px solid #bfe1d6;
+}
+
+.path-filter {
+  width: 68%;
+  border-radius: 18px;
+  padding: 6px 12px;
+  border: 1px solid #bfe1d6;
+  background: linear-gradient(135deg, #e8f7f2 0%, #ffffff 100%);
+  font-size: 12px;
+  color: var(--text);
+  outline: none;
+  box-shadow: 0 8px 12px rgba(15, 118, 110, 0.14);
+}
+
+.path-filter:hover {
+  border-color: #2abf9e;
+  box-shadow: 0 10px 14px rgba(15, 118, 110, 0.22);
+  background: linear-gradient(135deg, #def3ec 0%, #ffffff 100%);
+  transform: translateY(-1px);
+}
+
+.path-filter:focus {
+  border-color: #2abf9e;
+  box-shadow: 0 0 0 3px rgba(42, 191, 158, 0.18);
+}
+
+.output ul {
+  padding-left: 0;
+  list-style: none;
+  margin: 10px 0 0;
+}
+
+.output .endpoint-btn {
+  text-align: center;
+  background: linear-gradient(135deg, #f6fbf9 0%, #ffffff 100%);
+  color: var(--text);
+  border: 1px solid #d5e6e0;
+  border-radius: 16px;
+  box-shadow: 0 8px 14px rgba(16, 28, 33, 0.08);
+  letter-spacing: 0.01em;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.output .endpoint-btn:hover {
+  background: linear-gradient(135deg, #e8f3f0 0%, #ffffff 100%);
 }
 
 .output:empty {

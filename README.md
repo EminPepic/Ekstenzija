@@ -1,33 +1,33 @@
 # Swagger Tester
 
-**Swagger Tester** je alat za automatsko testiranje API endpointa koji kombinuje **Chrome ekstenziju** i **Node.js backend servis** deployan na Render.
+**Swagger Tester** is an automatic API endpoint testing tool that combines a **Chrome extension** and a **Node.js backend service** deployed on Render.
 
-Korisnik unosi **Swagger / OpenAPI URL**, bira endpoint i dobija **sigurnosni i performance izvještaj**.
+The user provides a **Swagger / OpenAPI URL**, selects an endpoint, and receives a **security and performance report**.
 
-# Svrha projekta
+# Project purpose
 
-Alat omogućava brzo **sigurnosno profilisanje API endpointa** direktno iz Swagger/OpenAPI dokumentacije bez ručnog sastavljanja zahtjeva.
+The tool enables fast **security profiling of API endpoints** directly from Swagger/OpenAPI documentation without manual request crafting.
 
-Automatski:
+Automatically:
 
-* učitava API definiciju
-* prikazuje dostupne endpoint-e i metode
-* pokreće sigurnosne testove
-* radi osnovni performance test
-* generiše strukturisan izvještaj
+* loads the API definition
+* lists available endpoints and methods
+* runs security tests
+* performs a lightweight performance test
+* generates a structured report
 
-# Kako aplikacija radi
+# How the app works
 
-1. Korisnik unosi **Swagger/OpenAPI URL** u Chrome ekstenziju
-2. Ekstenzija parsira dokument i prikazuje endpoint-e
-3. Korisnik bira **endpoint i HTTP metodu**
-4. Podaci se šalju backend servisu
-5. Backend pokreće sigurnosne i performance testove
-6. Generiše se **kompletan report** koji ekstenzija prikazuje
+1. The user enters a **Swagger/OpenAPI URL** in the Chrome extension
+2. The extension parses the document and lists endpoints
+3. The user selects an **endpoint and HTTP method**
+4. The data is sent to the backend service
+5. The backend runs security and performance tests
+6. A **complete report** is generated and displayed in the extension
    
-# Sigurnosni testovi
+# Security tests
 
-Testiraju se najčešće API ranjivosti:
+Common API vulnerabilities are tested:
 
 * SQL Injection
 * XSS
@@ -37,57 +37,57 @@ Testiraju se najčešće API ranjivosti:
 * NoSQL Injection
 * Template Injection
 * CRLF/Header Injection
-* Overlong i stress payload-i
+* Overlong and stress payloads
 
-Payload-i se prilagođavaju tipu parametara:
+Payloads are adapted to parameter types:
 
 * query
 * path
 * JSON body
 * form-data
 
-# Logika procjene rezultata
+# Result evaluation logic
 
-Rezultati se procjenjuju analizom:
+Results are evaluated based on:
 
-* HTTP statusa
-* sadržaja odgovora
-* poređenja sa baseline odgovorom
-* refleksije payload-a
-* SQL error markera
-* promjena u odgovoru
-* anomalija u vremenu odziva
+* HTTP status
+* response content
+* comparison with a baseline response
+* payload reflection
+* SQL error markers
+* response changes
+* response time anomalies
 
-Status testa može biti:
+Test status can be:
 
-* **Passed** – payload je blokiran ili bezbjedno obrađen
-* **Failed** – indikatori ranjivosti
-* **Inconclusive** – rezultat nije jasan
+* **Passed** – payload was blocked or safely handled
+* **Failed** – vulnerability indicators found
+* **Inconclusive** – result is unclear
 
-# Izvještaj sadrži
+# Report includes
 
-* ukupan broj testova
-* Passed / Failed / Inconclusive rezultate
-* security score i risk level
-* detaljne nalaze po testu
-* performance metrike (latency, requests/sec, errors)
-* automatski generisan zaključak i preporuke
+* total number of tests
+* Passed / Failed / Inconclusive results
+* security score and risk level
+* detailed findings per test
+* performance metrics (latency, requests/sec, errors)
+* automatically generated conclusion and recommendations
 
-# Struktura projekta
+# Project structure
 
-swagger-plugin/
-Chrome ekstenzija (UI i pokretanje testova)
+swagger-plugin/  
+Chrome extension (UI and test runner)
 
-Node-backend/
-Express servis za izvršavanje testova
+Node-backend/  
+Express service for executing tests
 
-render.yaml
-Render deploy konfiguracija
+render.yaml  
+Render deployment configuration
 ```
 
 # Backend deployment
 
-Backend servis:
+Backend service:
 
 https://swagger-tester-backend.onrender.com
 
@@ -95,8 +95,8 @@ Health check:
 
 https://swagger-tester-backend.onrender.com/health
 
-Pokretanje testiranja:
+Running tests:
 ```
 POST /run-test
 ```
-*automatsko testiranje API sigurnosti i performansi**.
+*automatic API security and performance testing*.

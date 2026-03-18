@@ -23,6 +23,8 @@ const downloadBtn = document.getElementById("downloadBtn");
 let isRunningTest = false;
 let lastResultForDownload = null;
 let currentApiKey = "";
+let currentMethodFilter = "GET";
+let currentPathFilter = "";
 
 if (apiKeyInput) {
   apiKeyInput.value = "";
@@ -34,11 +36,11 @@ if (saveApiKeyBtn) {
     if (value) {
       currentApiKey = value;
       output.style.display = "block";
-      output.innerHTML = "API key privremeno postavljen (ne cuva se).";
+      output.innerHTML = "API key temporarily set (not saved).";
     } else {
       currentApiKey = "";
       output.style.display = "block";
-      output.innerHTML = "API key obrisan.";
+      output.innerHTML = "API key cleared.";
     }
   });
 }
@@ -86,20 +88,20 @@ function formatDetailedReport(result) {
   const findings = Array.isArray(report.findings) ? report.findings : [];
   const lines = [];
 
-  lines.push("API SECURITY TEST REPORT - DETALJNI IZVJESTAJ");
+  lines.push("API SECURITY TEST REPORT - DETAILED REPORT");
   lines.push("=".repeat(72));
-  lines.push(`Naziv izvjestaja: ${report.title || "N/A"}`);
-  lines.push(`Generisano: ${report.generatedAt ? new Date(report.generatedAt).toLocaleString() : "N/A"}`);
+  lines.push(`Report title: ${report.title || "N/A"}`);
+  lines.push(`Generated: ${report.generatedAt ? new Date(report.generatedAt).toLocaleString() : "N/A"}`);
   lines.push(`Endpoint: ${endpoint.url || "N/A"}`);
-  lines.push(`Metoda: ${endpoint.method || "N/A"}`);
+  lines.push(`Method: ${endpoint.method || "N/A"}`);
   lines.push("");
 
-  lines.push("SAZETAK");
+  lines.push("SUMMARY");
   lines.push("-".repeat(72));
-  lines.push(`Ukupno testova: ${summary.totalTests ?? "N/A"}`);
-  lines.push(`Proslo: ${summary.passed ?? "N/A"}`);
-  lines.push(`Palo: ${summary.failed ?? "N/A"}`);
-  lines.push(`Neodredjeno: ${summary.inconclusive ?? 0}`);
+  lines.push(`Total tests: ${summary.totalTests ?? "N/A"}`);
+  lines.push(`Passed: ${summary.passed ?? "N/A"}`);
+  lines.push(`Failed: ${summary.failed ?? "N/A"}`);
+  lines.push(`Inconclusive: ${summary.inconclusive ?? 0}`);
   lines.push(`Security score: ${summary.securityScore ?? "N/A"}%`);
   lines.push(`Risk level: ${summary.riskLevel ?? "N/A"}`);
   lines.push("");
@@ -115,32 +117,32 @@ function formatDetailedReport(result) {
   lines.push(`2xx/4xx/5xx: ${perf.status2xx ?? "N/A"} / ${perf.status4xx ?? "N/A"} / ${perf.status5xx ?? "N/A"}`);
   lines.push("");
 
-  lines.push("ANALIZA");
+  lines.push("ANALYSIS");
   lines.push("-".repeat(72));
-  lines.push(`Naslov: ${analysis.headline || "N/A"}`);
-  lines.push(`Sigurnost: ${analysis.securityLevel || "N/A"}`);
-  lines.push(`Performanse: ${analysis.performanceLevel || "N/A"}`);
-  lines.push(`Procjena sigurnosti: ${analysis.securityAssessment || "N/A"}`);
-  lines.push(`Procjena performansi: ${analysis.performanceAssessment || "N/A"}`);
-  lines.push(`Zakljucak: ${analysis.conclusion || analysis.summary || "N/A"}`);
-  lines.push("Preporuke:");
+  lines.push(`Headline: ${analysis.headline || "N/A"}`);
+  lines.push(`Security: ${analysis.securityLevel || "N/A"}`);
+  lines.push(`Performance: ${analysis.performanceLevel || "N/A"}`);
+  lines.push(`Security assessment: ${analysis.securityAssessment || "N/A"}`);
+  lines.push(`Performance assessment: ${analysis.performanceAssessment || "N/A"}`);
+  lines.push(`Conclusion: ${analysis.conclusion || analysis.summary || "N/A"}`);
+  lines.push("Recommendations:");
   (analysis.recommendations || []).forEach((r, i) => lines.push(`  ${i + 1}. ${r}`));
   lines.push("");
 
-  lines.push("DETALJNI NALAZI");
+  lines.push("DETAILED FINDINGS");
   lines.push("-".repeat(72));
   findings.forEach((finding, idx) => {
     lines.push(`${idx + 1}) ${finding.testType || "N/A"}`);
     lines.push(`   Status: ${finding.findingType || finding.status || "N/A"}`);
     lines.push(`   Severity: ${finding.severity || "N/A"}`);
-    lines.push(`   Napomena: ${finding.note || "N/A"}`);
-    lines.push(`   Poruka: ${finding.message || "N/A"}`);
+    lines.push(`   Note: ${finding.note || "N/A"}`);
+    lines.push(`   Message: ${finding.message || "N/A"}`);
     lines.push(`   HTTP status: ${finding.statusCode ?? "N/A"}`);
     lines.push(`   URL: ${finding.url || "N/A"}`);
-    lines.push(`   Vrijeme: ${finding.timestamp ? new Date(finding.timestamp).toLocaleString() : "N/A"}`);
+    lines.push(`   Time: ${finding.timestamp ? new Date(finding.timestamp).toLocaleString() : "N/A"}`);
     lines.push("   Payload:");
     lines.push(`   ${shortenText(String(finding.payload || "").replace(/\r?\n/g, " "), 800)}`);
-    lines.push("   Odgovor servera:");
+    lines.push("   Server response:");
     lines.push(`   ${shortenText(String(finding.rawResponse || "").replace(/\r?\n/g, " "), 2000) || "N/A"}`);
     lines.push("");
   });
@@ -420,7 +422,7 @@ async function parseSwagger(text) {
     try {
       return parseYamlBasic(raw);
     } catch (err) {
-      throw new Error("Nije moguce parsirati JSON/YAML");
+      throw new Error("Unable to parse JSON/YAML");
     }
   }
 }
@@ -433,7 +435,7 @@ loadBtn.addEventListener("click", async () => {
   if (swaggerFileInput && swaggerFileInput.files && swaggerFileInput.files.length > 0) {
     const file = swaggerFileInput.files[0];
     output.style.display = "block";
-    output.innerHTML = `Učitavanje iz fajla ${escapeHtml(file.name)}<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>`;
+    output.innerHTML = `Loading from file ${escapeHtml(file.name)}<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>`;
     try {
       const text = await new Promise((res, rej) => {
         const reader = new FileReader();
@@ -443,26 +445,26 @@ loadBtn.addEventListener("click", async () => {
       });
       swagger = await parseSwagger(text);
     } catch (err) {
-      output.innerHTML = `Greška pri parsiranju fajla: ${escapeHtml(err?.message || 'nepoznato')}`;
+      output.innerHTML = `Error parsing file: ${escapeHtml(err?.message || "unknown")}`;
       return;
     }
   } else {
     const url = swaggerInput.value.trim();
     if (!url) return;
     output.style.display = "block";
-    output.innerHTML = 'Učitavanje Swagger dokumentacije<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
+    output.innerHTML = 'Loading Swagger document<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
     try {
       const response = await fetch(url);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       swagger = await response.json();
     } catch (err) {
-      output.innerHTML = `Greska pri ucitavanju Swagger dokumentacije: ${escapeHtml(err?.message || "Nepoznata greska")}`;
+      output.innerHTML = `Error loading Swagger document: ${escapeHtml(err?.message || "Unknown error")}`;
       return;
     }
   }
 
   if (!swagger?.paths || typeof swagger.paths !== "object") {
-    output.innerHTML = "Nevalidan Swagger/OpenAPI dokument.";
+    output.innerHTML = "Invalid Swagger/OpenAPI document.";
     return;
   }
   currentSwagger = swagger;
@@ -578,11 +580,42 @@ function getEndpointContext(swagger, path, method) {
 }
 
 function showEndpoints(swagger) {
-  let html = "<h3>Endpoint-i:</h3><ul>";
+  const methods = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+  if (!methods.includes(currentMethodFilter)) currentMethodFilter = "GET";
+
+  let html = `
+    <div class="endpoint-controls">
+      <h3>Endpoints</h3>
+      <label class="method-select-label">Method</label>
+      <div class="method-dropdown" id="methodDropdown">
+        <button type="button" class="method-select" id="methodSelectBtn" aria-haspopup="listbox" aria-expanded="false">
+          ${currentMethodFilter}
+          <span class="select-caret" aria-hidden="true"></span>
+        </button>
+        <div class="method-options" id="methodOptions" role="listbox">
+          ${methods
+            .map(
+              (m) =>
+                `<div class="method-option ${m === currentMethodFilter ? "is-selected" : ""}" role="option" data-method="${m}">${m}</div>`
+            )
+            .join("")}
+        </div>
+      </div>
+      <label class="method-select-label" for="pathFilter">Filter</label>
+      <input id="pathFilter" class="path-filter" type="text" placeholder="e.g. /users or /auth" value="${currentPathFilter || ""}">
+    </div>
+    <ul>
+  `;
 
   for (const path in swagger.paths) {
     for (const method in swagger.paths[path]) {
-      html += `<li><button class="endpoint-btn" data-path="${path}" data-method="${method}">${method.toUpperCase()} ${path}</button></li>`;
+      const upper = method.toUpperCase();
+      if (upper !== currentMethodFilter) continue;
+      if (currentPathFilter) {
+        const needle = currentPathFilter.toLowerCase();
+        if (!path.toLowerCase().includes(needle)) continue;
+      }
+      html += `<li><button class="endpoint-btn" data-path="${path}" data-method="${method}">${upper} ${path}</button></li>`;
     }
   }
 
@@ -595,17 +628,70 @@ function showEndpoints(swagger) {
   document.querySelectorAll(".endpoint-btn").forEach((btn) => {
     btn.onclick = () => runTest(btn.dataset.path, btn.dataset.method);
   });
+
+  const dropdown = document.getElementById("methodDropdown");
+  const selectBtn = document.getElementById("methodSelectBtn");
+  const options = document.getElementById("methodOptions");
+  const pathFilter = document.getElementById("pathFilter");
+
+  if (pathFilter) {
+    pathFilter.addEventListener("input", (e) => {
+      currentPathFilter = String(e.target.value || "");
+      showEndpoints(swagger);
+      const refocus = document.getElementById("pathFilter");
+      if (refocus) {
+        refocus.focus();
+        const v = refocus.value;
+        try {
+          refocus.setSelectionRange(v.length, v.length);
+        } catch (err) {}
+      }
+    });
+  }
+
+  if (dropdown && selectBtn && options) {
+    const closeDropdown = () => {
+      dropdown.classList.remove("is-open");
+      selectBtn.setAttribute("aria-expanded", "false");
+    };
+
+    selectBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const willOpen = !dropdown.classList.contains("is-open");
+      document.querySelectorAll(".method-dropdown.is-open").forEach((el) => el.classList.remove("is-open"));
+      if (willOpen) {
+        dropdown.classList.add("is-open");
+        selectBtn.setAttribute("aria-expanded", "true");
+        const outsideHandler = (evt) => {
+          if (!dropdown.contains(evt.target)) closeDropdown();
+        };
+        document.addEventListener("click", outsideHandler, { once: true });
+      } else {
+        closeDropdown();
+      }
+    });
+
+    options.querySelectorAll(".method-option").forEach((opt) => {
+      opt.addEventListener("click", (e) => {
+        const method = String(e.currentTarget.dataset.method || "GET").toUpperCase();
+        currentMethodFilter = method;
+        closeDropdown();
+        showEndpoints(swagger);
+      });
+    });
+
+  }
 }
 
 async function runTest(path, method) {
   if (isRunningTest) return;
   const baseUrl = extractBaseUrl(currentSwagger);
   if (!baseUrl) {
-    output.innerHTML = "Ne mogu odrediti baseUrl.";
+    output.innerHTML = "Unable to determine baseUrl.";
     return;
   }
   if (!IS_LOCAL_BACKEND && !getSavedApiKey()) {
-    output.innerHTML = "Unesi API key prije pokretanja testa.";
+    output.innerHTML = "Enter an API key before starting the test.";
     return;
   }
 
@@ -617,7 +703,7 @@ async function runTest(path, method) {
     // remove older than 60s
     _lastRuns[key] = _lastRuns[key].filter((t) => now - t < 60000);
     if (_lastRuns[key].length >= _maxRunsPerMinute) {
-      output.innerHTML = "Ogranicenje: presli ste dozvoljeni broj pokretanja za ovaj endpoint (max per minute). Pokusajte kasnije.";
+      output.innerHTML = "Limit exceeded: too many runs for this endpoint (max per minute). Please try again later.";
       return;
     }
     _lastRuns[key].push(now);
@@ -627,7 +713,7 @@ async function runTest(path, method) {
 
   const endpointContext = getEndpointContext(currentSwagger, path, method);
   output.style.display = "block";
-  output.innerHTML = 'Testiranje u toku<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
+  output.innerHTML = 'Testing in progress<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
   setRunState(true);
 
   try {
@@ -653,9 +739,9 @@ async function runTest(path, method) {
     let response = await sendRunTest();
 
     if (!response.ok) {
-      let backendMessage = `Backend greska (HTTP ${response.status})`;
+      let backendMessage = `Backend error (HTTP ${response.status})`;
       if ([502, 503, 504].includes(response.status)) {
-        output.innerHTML = "Backend se budi (free hosting). Sacekaj malo...";
+        output.innerHTML = "Backend is waking up (free hosting). Please wait...";
         await wait(25000);
         response = await sendRunTest();
         if (response.ok) {
@@ -663,7 +749,7 @@ async function runTest(path, method) {
           updateTimeline(result);
           return;
         }
-        backendMessage = "Backend nije dostupan ili se budi (free hosting). Pokusaj ponovo za 30-60 sekundi.";
+        backendMessage = "Backend is unavailable or waking up (free hosting). Try again in 30-60 seconds.";
       }
       try {
         const errData = await response.json();
@@ -675,12 +761,12 @@ async function runTest(path, method) {
     const result = await response.json();
     updateTimeline(result);
   } catch (err) {
-    const rawMsg = String(err?.message || "Backend nije pokrenut.");
+    const rawMsg = String(err?.message || "Backend is not running.");
     const isNetwork =
       /Failed to fetch|NetworkError|timeout|Fetch timeout|ECONNREFUSED|ENOTFOUND/i.test(rawMsg);
     if (isNetwork) {
       try {
-        output.innerHTML = "Backend se budi (free hosting). Sacekaj malo...";
+        output.innerHTML = "Backend is waking up (free hosting). Please wait...";
         await wait(25000);
         const retryResponse = await sendRunTest();
         if (retryResponse.ok) {
@@ -691,9 +777,9 @@ async function runTest(path, method) {
       } catch (e) {}
     }
     const friendly = isNetwork
-      ? "Backend nije dostupan ili se budi (free hosting). Pokusaj ponovo za 30-60 sekundi."
+      ? "Backend is unavailable or waking up (free hosting). Try again in 30-60 seconds."
       : rawMsg;
-    output.innerHTML = `Test nije pokrenut: ${escapeHtml(friendly)}`;
+    output.innerHTML = `Test not started: ${escapeHtml(friendly)}`;
   } finally {
     setRunState(false);
   }
@@ -703,7 +789,7 @@ function updateTimeline(result) {
   const report = result.report || null;
 
   if (!report) {
-    timelineList.innerHTML = "Nema report podataka.";
+    timelineList.innerHTML = "No report data.";
     output.style.display = "none";
     timeline.style.display = "block";
     backBtn.style.display = "block";
@@ -730,15 +816,15 @@ function updateTimeline(result) {
     .join("");
 
   const analysis = report.analysis || {};
-  const analysisSummary = analysis.summary || "Analiza nije dostupna.";
+  const analysisSummary = analysis.summary || "Analysis is not available.";
   const recommendations = Array.isArray(analysis.recommendations) ? analysis.recommendations : [];
-  const cleanConclusion = String(analysis.conclusion || analysisSummary).replace(/^Zakljucak:\s*/i, "");
+  const cleanConclusion = String(analysis.conclusion || analysisSummary).replace(/^Conclusion:\s*/i, "");
   const interpretation = [analysis.securityAssessment, analysis.performanceAssessment]
     .filter((item) => typeof item === "string" && item.trim().length > 0)
     .join(" ");
   const recommendationsHtml = recommendations.length
     ? `<ul class="analysis-recommendations">${recommendations.slice(0, 2).map((r) => `<li>${escapeHtml(shortenText(r, 140))}</li>`).join("")}</ul>`
-    : "<p>Nema dodatnih preporuka.</p>";
+    : "<p>No additional recommendations.</p>";
 
   timelineList.innerHTML = `
     <section class="report-shell">
@@ -750,26 +836,26 @@ function updateTimeline(result) {
 
       <section class="report-card">
         <div class="grade-row">
-          <span class="grade-label">Ocjena testiranja</span>
+          <span class="grade-label">Test score</span>
           <span class="test-grade-pill ${escapeHtml(gradeTone)}">${escapeHtml(grade10)}/10</span>
         </div>
-        <p><strong>Testovi:</strong> ${escapeHtml(report.summary.totalTests)} | <strong>Proslo:</strong> ${escapeHtml(report.summary.passed)} | <strong>Palo:</strong> ${escapeHtml(report.summary.failed)} | <strong>Neodredjeno:</strong> ${escapeHtml(report.summary.inconclusive ?? 0)}</p>
+        <p><strong>Tests:</strong> ${escapeHtml(report.summary.totalTests)} | <strong>Passed:</strong> ${escapeHtml(report.summary.passed)} | <strong>Failed:</strong> ${escapeHtml(report.summary.failed)} | <strong>Inconclusive:</strong> ${escapeHtml(report.summary.inconclusive ?? 0)}</p>
         <p><strong>Security score:</strong> ${escapeHtml(report.summary.securityScore)}% | <strong>Risk:</strong> ${escapeHtml(report.summary.riskLevel)}</p>
         <p><strong>Latency:</strong> ${escapeHtml(perf.avgLatencyMs ?? "N/A")} ms (P99 ${escapeHtml(perf.latencyP99 ?? "N/A")} ms) | <strong>RPS:</strong> ${escapeHtml(perf.requestsPerSec ?? "N/A")} | <strong>Errors:</strong> ${escapeHtml(perf.errorCount ?? "N/A")}</p>
       </section>
 
       <section class="report-card">
-        <h5>Analiza rezultata (Automatska)</h5>
+        <h5>Result Analysis (Automatic)</h5>
         <p><strong>${escapeHtml(shortenText(analysis.headline || "N/A", 120))}</strong></p>
-        <p><strong>Sigurnost:</strong> ${escapeHtml(analysis.securityLevel || "N/A")} | <strong>Performanse:</strong> ${escapeHtml(analysis.performanceLevel || "N/A")}</p>
-        <p><strong>Interpretacija:</strong> ${escapeHtml(shortenText(interpretation || analysisSummary, 260))}</p>
-        <div><strong>Preporuke:</strong>${recommendationsHtml}</div>
-        <p><strong>Zakljucak:</strong> ${escapeHtml(shortenText(cleanConclusion, 200))}</p>
+        <p><strong>Security:</strong> ${escapeHtml(analysis.securityLevel || "N/A")} | <strong>Performance:</strong> ${escapeHtml(analysis.performanceLevel || "N/A")}</p>
+        <p><strong>Interpretation:</strong> ${escapeHtml(shortenText(interpretation || analysisSummary, 260))}</p>
+        <div><strong>Recommendations:</strong>${recommendationsHtml}</div>
+        <p><strong>Conclusion:</strong> ${escapeHtml(shortenText(cleanConclusion, 200))}</p>
       </section>
 
       <section class="report-card">
-        <h5>Detaljni nalazi</h5>
-        <div class="findings-list">${findingsHtml || "<p>Nema nalaza.</p>"}</div>
+        <h5>Detailed Findings</h5>
+        <div class="findings-list">${findingsHtml || "<p>No findings.</p>"}</div>
       </section>
     </section>
   `;

@@ -11,27 +11,27 @@
     <header class="hero">
       <p class="kicker">API Security Assistant</p>
       <h2>Swagger Reader</h2>
-      <p class="subtitle">Ucitaj dokumentaciju i pokreni sigurnosne testove.</p>
+      <p class="subtitle">Load documentation and run security tests.</p>
     </header>
 
     <section class="card controls">
-      <label for="swaggerUrl">Unesi Swagger URL</label>
+      <label for="swaggerUrl">Enter Swagger URL</label>
       <input id="swaggerUrl" type="text" placeholder="https://petstore.swagger.io/v2/swagger.json">
-      <label for="swaggerFile" class="small-label file-label">ili iz JSON/YAML fajla</label>
+      <label for="swaggerFile" class="small-label file-label">or from a JSON/YAML file</label>
       <input id="swaggerFile" class="file-input" type="file" accept=".json,.yaml,.yml">
       <label for="apiKeyInput" class="small-label file-label">API key</label>
-      <input id="apiKeyInput" class="file-input" type="password" placeholder="Unesi API key">
-      <button id="saveApiKey" class="secondary-btn">Sacuvaj API key</button>
-      <button id="loadSwagger">Ucitaj Swagger</button>
+      <input id="apiKeyInput" class="file-input" type="password" placeholder="Enter API key">
+      <button id="saveApiKey" class="secondary-btn">Save API key</button>
+      <button id="loadSwagger">Load Swagger</button>
     </section>
 
     <section id="output" class="card output"></section>
 
     <section id="timeline" class="card timeline" style="display: none;">
-      <h3>Izvjestaj testiranja</h3>
+      <h3>Test Report</h3>
       <div id="timelineList"></div>
-      <button id="backBtn">Nazad</button>
-      <button id="downloadBtn" class="secondary-btn" style="display: none;">Preuzmi detaljnije</button>
+      <button id="backBtn">Back</button>
+      <button id="downloadBtn" class="secondary-btn" style="display: none;">Download detailed</button>
     </section>
   </main>
 
