@@ -177,6 +177,17 @@ input:disabled {
   box-shadow: 0 10px 18px rgba(31, 78, 65, 0.3);
 }
 
+.notice {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: #eef8f4;
+  border: 1px dashed #bfe1d6;
+  color: #2b4a43;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .endpoint-controls {
   display: flex;
   flex-direction: column;

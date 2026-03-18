@@ -14,6 +14,11 @@ const ALLOWED_ORIGINS = String(process.env.ALLOWED_ORIGINS || "")
   .map((origin) => origin.trim())
   .filter(Boolean);
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 30000);
+const ENFORCE_TEST_ONLY = String(process.env.ENFORCE_TEST_ONLY || "false").toLowerCase() === "true";
+const TEST_ONLY_ALLOWLIST = String(process.env.TEST_ONLY_ALLOWLIST || "")
+  .split(",")
+  .map((host) => host.trim().toLowerCase())
+  .filter(Boolean);
 
 let activeTests = 0;
 const MAX_ACTIVE_TESTS = 2; 
@@ -126,6 +131,20 @@ function isValidUrl(s) {
   } catch (e) {
     return false;
   }
+}
+
+function getHostFromUrl(s) {
+  try {
+    return new URL(s).hostname.toLowerCase();
+  } catch (e) {
+    return "";
+  }
+}
+
+function isAllowedTestHost(host) {
+  if (!host) return false;
+  if (host === "localhost" || host === "127.0.0.1") return true;
+  return TEST_ONLY_ALLOWLIST.includes(host);
 }
 app.get("/health", (req, res) => res.json({ ok: true }));
 
@@ -991,6 +1010,14 @@ app.post("/run-test", runTestLimiter, requireApiKeyIfConfigured, async (req, res
     if (!baseUrl || !path || !method) return res.status(400).json({ error: "Missing parameters" });
     if (!isValidUrl(baseUrl)) return res.status(400).json({ error: "Invalid baseUrl" });
     if (!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].includes(method)) return res.status(400).json({ error: "Invalid method" });
+    if (ENFORCE_TEST_ONLY) {
+      const host = getHostFromUrl(baseUrl);
+      if (!isAllowedTestHost(host)) {
+        return res.status(403).json({
+          error: "Test-only mode enabled. Use localhost or an allowlisted test host.",
+        });
+      }
+    }
 
     const normalizedMethod = method.toUpperCase();
     const mode = chooseMode(normalizedMethod, endpointContext);

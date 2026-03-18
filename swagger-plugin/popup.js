@@ -25,6 +25,7 @@ let lastResultForDownload = null;
 let currentApiKey = "";
 let currentMethodFilter = "GET";
 let currentPathFilter = "";
+let lastSwaggerUrl = "";
 
 if (apiKeyInput) {
   apiKeyInput.value = "";
@@ -434,6 +435,7 @@ loadBtn.addEventListener("click", async () => {
   // priority: file input over URL
   if (swaggerFileInput && swaggerFileInput.files && swaggerFileInput.files.length > 0) {
     const file = swaggerFileInput.files[0];
+    lastSwaggerUrl = "";
     output.style.display = "block";
     output.innerHTML = `Loading from file ${escapeHtml(file.name)}<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>`;
     try {
@@ -451,6 +453,7 @@ loadBtn.addEventListener("click", async () => {
   } else {
     const url = swaggerInput.value.trim();
     if (!url) return;
+    lastSwaggerUrl = url;
     output.style.display = "block";
     output.innerHTML = 'Loading Swagger document<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
     try {
@@ -481,7 +484,26 @@ function setRunState(active) {
 }
 
 function extractBaseUrl(swagger) {
-  if (swagger.servers && swagger.servers.length > 0) return swagger.servers[0].url;
+  if (swagger.servers && swagger.servers.length > 0) {
+    const server = swagger.servers[0];
+    let url = String(server?.url || "").trim();
+    if (!url) return null;
+    if (server?.variables) {
+      url = url.replace(/\{([^}]+)\}/g, (_, name) => {
+        const v = server.variables?.[name];
+        return v?.default != null ? String(v.default) : "";
+      });
+    }
+    const isAbsolute = /^https?:\/\//i.test(url);
+    if (!isAbsolute && lastSwaggerUrl) {
+      try {
+        url = new URL(url, lastSwaggerUrl).toString();
+      } catch (e) {
+        // ignore and fall through
+      }
+    }
+    return url;
+  }
   return swagger.host ? `${swagger.schemes?.[0] || "https"}://${swagger.host}${swagger.basePath || ""}` : null;
 }
 
