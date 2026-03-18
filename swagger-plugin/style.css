@@ -83,8 +83,13 @@ h2 {
 
 .output {
   background: #ffffff;
-  border: 0;
+  border: 0 !important;
   box-shadow: none;
+}
+
+.card.output {
+  border: 0 !important;
+  box-shadow: none !important;
 }
 
 .timeline {
@@ -717,6 +722,13 @@ li:hover {
 .endpoint-btn:hover {
   background: #ffffff;
   box-shadow: 0 8px 14px rgba(16, 28, 33, 0.12);
+}
+
+/* Endpoint list wrapper should be borderless */
+.output ul {
+  border: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
 }
 
 #timelineList pre {
