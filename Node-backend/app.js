@@ -9,20 +9,11 @@ app.set("trust proxy", 1);
 const PORT = process.env.PORT || 3000;
 const API_KEY = String(process.env.API_KEY || "").trim();
 const API_KEY_HEADER = String(process.env.API_KEY_HEADER || "x-api-key").trim();
-const ALLOWED_ORIGINS = String(process.env.ALLOWED_ORIGINS || "")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 30000);
 const TIME_DELAY_THRESHOLD_MS = Number(process.env.TIME_DELAY_THRESHOLD_MS || 2500);
 const TIME_MIN_DELAY_MS = Number(process.env.TIME_MIN_DELAY_MS || 4000);
 const DIFF_SIMILARITY_THRESHOLD = Number(process.env.DIFF_SIMILARITY_THRESHOLD || 0.15);
 const MAX_CHAINED_TESTS = Number(process.env.MAX_CHAINED_TESTS || 12);
-const ENFORCE_TEST_ONLY = String(process.env.ENFORCE_TEST_ONLY || "false").toLowerCase() === "true";
-const TEST_ONLY_ALLOWLIST = String(process.env.TEST_ONLY_ALLOWLIST || "")
-  .split(",")
-  .map((host) => host.trim().toLowerCase())
-  .filter(Boolean);
 
 let activeTests = 0;
 const MAX_ACTIVE_TESTS = 2; 
@@ -32,40 +23,16 @@ const keyHits = new Map();
 
 const runTestLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 5,              // max 5 tests per minute per IP
+  max: 2,              // max 2 tests per minute per IP
   message: { error: "Too many requests. Please try again later." }
 });
 
-if (ALLOWED_ORIGINS.length > 0) {
-  app.use(
-    cors({
-      origin(origin, callback) {
-        if (!origin) return callback(null, true);
-        if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
-        return callback(new Error("Not allowed by CORS"));
-      },
-    })
-  );
-} else {
-  app.use(cors());
-}
+app.use(cors());
 app.use(express.json({ limit: "100kb" }));
 
-function isLocalRequest(req) {
-  const ip = String(req.ip || "").trim();
-  const host = String(req.hostname || "").trim().toLowerCase();
-  return (
-    ip === "127.0.0.1" ||
-    ip === "::1" ||
-    ip === "::ffff:127.0.0.1" ||
-    host === "localhost"
-  );
-}
-
 function requireApiKeyIfConfigured(req, res, next) {
-  if (isLocalRequest(req)) return next();
   if (!API_KEY) {
-    return res.status(403).json({ error: "API_KEY is not set for external requests." });
+    return res.status(403).json({ error: "API_KEY is not set." });
   }
   const provided = String(req.get(API_KEY_HEADER) || "").trim();
   if (provided !== API_KEY) {
@@ -137,19 +104,6 @@ function isValidUrl(s) {
   }
 }
 
-function getHostFromUrl(s) {
-  try {
-    return new URL(s).hostname.toLowerCase();
-  } catch (e) {
-    return "";
-  }
-}
-
-function isAllowedTestHost(host) {
-  if (!host) return false;
-  if (host === "localhost" || host === "127.0.0.1") return true;
-  return TEST_ONLY_ALLOWLIST.includes(host);
-}
 app.get("/health", (req, res) => res.json({ ok: true }));
 
 const testsByMode = {
@@ -708,7 +662,6 @@ function detectApplicationLevelBlock(responseText) {
     "zabranjen",
     "odbijen",
     "too many requests",
-    "too many requests",
   ];
 
   if (phrases.some((p) => lowered.includes(p))) {
@@ -1247,15 +1200,6 @@ app.post("/run-test", runTestLimiter, requireApiKeyIfConfigured, async (req, res
     if (!baseUrl || !path || !method) return res.status(400).json({ error: "Missing parameters" });
     if (!isValidUrl(baseUrl)) return res.status(400).json({ error: "Invalid baseUrl" });
     if (!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].includes(method)) return res.status(400).json({ error: "Invalid method" });
-    if (ENFORCE_TEST_ONLY) {
-      const host = getHostFromUrl(baseUrl);
-      if (!isAllowedTestHost(host)) {
-        return res.status(403).json({
-          error: "Test-only mode enabled. Use localhost or an allowlisted test host.",
-        });
-      }
-    }
-
     const normalizedMethod = method.toUpperCase();
     const mode = chooseMode(normalizedMethod, endpointContext);
     const tests = testsByMode[mode] || testsByMode.body;
