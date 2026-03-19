@@ -20,6 +20,11 @@ Automatically:
 
 Use this tool **only** on systems you own or have explicit permission to test. Do not use it against production services without authorization.
 
+# API key access
+
+To request an API key, fill out the access form:
+`REPLACE_WITH_FORM_URL`
+
 # How the app works
 
 1. The user enters a **Swagger/OpenAPI URL** in the Chrome extension
