@@ -14,6 +14,10 @@ const ALLOWED_ORIGINS = String(process.env.ALLOWED_ORIGINS || "")
   .map((origin) => origin.trim())
   .filter(Boolean);
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 30000);
+const TIME_DELAY_THRESHOLD_MS = Number(process.env.TIME_DELAY_THRESHOLD_MS || 2500);
+const TIME_MIN_DELAY_MS = Number(process.env.TIME_MIN_DELAY_MS || 4000);
+const DIFF_SIMILARITY_THRESHOLD = Number(process.env.DIFF_SIMILARITY_THRESHOLD || 0.15);
+const MAX_CHAINED_TESTS = Number(process.env.MAX_CHAINED_TESTS || 12);
 const ENFORCE_TEST_ONLY = String(process.env.ENFORCE_TEST_ONLY || "false").toLowerCase() === "true";
 const TEST_ONLY_ALLOWLIST = String(process.env.TEST_ONLY_ALLOWLIST || "")
   .split(",")
@@ -276,6 +280,33 @@ const testsByMode = {
   ],
 };
 
+function buildChainedTests(tests) {
+  const chained = [];
+  const chainers = [
+    { re: /SQLi|SQL/i, suffix: " /*chain*/ OR 1=1--" },
+    { re: /Command|Bash/i, suffix: ";id" },
+    { re: /XSS|Script|SVG|IMG/i, suffix: "\"><svg/onload=alert(1)>" },
+    { re: /Traversal|Path/i, suffix: "/../../../../etc/passwd" },
+    { re: /Template|SSTI/i, suffix: "{{7*7}}" },
+    { re: /CRLF|Header/i, suffix: "%0d%0aX-Chain:1" },
+  ];
+
+  for (const test of tests || []) {
+    if (chained.length >= MAX_CHAINED_TESTS) break;
+    const payload = String(test?.value || "");
+    if (!payload || payload.length > 2000) continue;
+    const chainer = chainers.find((c) => c.re.test(String(test?.type || "")));
+    if (!chainer) continue;
+    const chainedValue = `${payload}${chainer.suffix}`;
+    chained.push({
+      type: `${test.type} + Chain`,
+      value: chainedValue,
+      chainedFrom: test.type,
+    });
+  }
+  return chained;
+}
+
 function chooseMode(method, endpointContext) {
   const hasQuery = (endpointContext?.queryParams || []).length > 0;
   const hasPath = Object.keys(endpointContext?.pathParamValues || {}).length > 0;
@@ -374,6 +405,113 @@ function buildRequest(method, mode, testValue, endpointContext) {
 
 function normalizeBody(text) {
   return String(text || "").replace(/\s+/g, " ").trim().slice(0, 5000);
+}
+
+function tokenizeForDiff(text) {
+  return String(text || "")
+    .toLowerCase()
+    .match(/[a-z0-9_]+/g) || [];
+}
+
+function computeJaccardSimilarity(aTokens, bTokens) {
+  if (aTokens.length === 0 && bTokens.length === 0) return 1;
+  const aSet = new Set(aTokens);
+  const bSet = new Set(bTokens);
+  let intersection = 0;
+  for (const t of aSet) {
+    if (bSet.has(t)) intersection++;
+  }
+  const union = aSet.size + bSet.size - intersection;
+  return union === 0 ? 1 : intersection / union;
+}
+
+function computeSimilarityScore(aText, bText) {
+  const aNorm = normalizeBody(aText);
+  const bNorm = normalizeBody(bText);
+  if (aNorm === bNorm) return 1;
+  const aTokens = tokenizeForDiff(aNorm);
+  const bTokens = tokenizeForDiff(bNorm);
+  return computeJaccardSimilarity(aTokens, bTokens);
+}
+
+function collectJsonPaths(value, prefix = "", depth = 0, out = []) {
+  if (depth > 6) return out;
+  if (value === null || value === undefined) {
+    out.push(prefix || "$");
+    return out;
+  }
+  if (Array.isArray(value)) {
+    out.push(`${prefix || "$"}[]`);
+    value.slice(0, 50).forEach((v, i) => collectJsonPaths(v, `${prefix || "$"}[${i}]`, depth + 1, out));
+    return out;
+  }
+  if (typeof value === "object") {
+    const keys = Object.keys(value).sort();
+    if (keys.length === 0) out.push(`${prefix || "$"}{}`);
+    for (const k of keys) {
+      const next = prefix ? `${prefix}.${k}` : k;
+      out.push(next);
+      collectJsonPaths(value[k], next, depth + 1, out);
+    }
+    return out;
+  }
+  out.push(`${prefix || "$"}:${typeof value}`);
+  return out;
+}
+
+function summarizeJsonStructure(value) {
+  if (value === null || value === undefined) return "null";
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "[]";
+    return `[${summarizeJsonStructure(value[0])}]`;
+  }
+  if (typeof value === "object") {
+    const keys = Object.keys(value).sort();
+    return `{${keys.map((k) => `${k}:${summarizeJsonStructure(value[k])}`).join(",")}}`;
+  }
+  return typeof value;
+}
+
+function diffJsonKeys(a, b) {
+  const aKeys = new Set(collectJsonPaths(a));
+  const bKeys = new Set(collectJsonPaths(b));
+  const added = [];
+  const removed = [];
+  for (const k of bKeys) if (!aKeys.has(k)) added.push(k);
+  for (const k of aKeys) if (!bKeys.has(k)) removed.push(k);
+  return { added: added.slice(0, 50), removed: removed.slice(0, 50), addedCount: added.length, removedCount: removed.length };
+}
+
+function computeResponseDiff(baselineText, responseText) {
+  const baseNorm = normalizeBody(baselineText);
+  const respNorm = normalizeBody(responseText);
+  const similarity = computeSimilarityScore(baseNorm, respNorm);
+  const baselineLength = baseNorm.length;
+  const responseLength = respNorm.length;
+  const lengthDelta = responseLength - baselineLength;
+
+  const baseJson = tryParseJson(baselineText);
+  const respJson = tryParseJson(responseText);
+  const baseStruct = baseJson ? summarizeJsonStructure(stripVolatileFields(baseJson)) : null;
+  const respStruct = respJson ? summarizeJsonStructure(stripVolatileFields(respJson)) : null;
+  const structChanged = baseStruct && respStruct ? baseStruct !== respStruct : null;
+  const keyDiff = baseJson && respJson ? diffJsonKeys(stripVolatileFields(baseJson), stripVolatileFields(respJson)) : null;
+
+  return {
+    similarityPct: Number((similarity * 100).toFixed(1)),
+    baselineLength,
+    responseLength,
+    lengthDelta,
+    structureChanged: structChanged,
+    keyDiff,
+    changed: similarity < 0.98 || lengthDelta !== 0 || structChanged === true || (keyDiff && (keyDiff.addedCount > 0 || keyDiff.removedCount > 0)),
+  };
+}
+
+function getInvalidProbeValue(mode) {
+  const base = "!!INVALID!!@@@";
+  if (mode === "path") return `${base}/..`;
+  return base;
 }
 
 function safeDecode(value) {
@@ -489,6 +627,12 @@ function detectConfirmedExecutionEvidence(responseText) {
   if (lowered.includes("information_schema") || lowered.includes("pg_catalog") || lowered.includes("sqlite_master")) {
     return { confirmed: true, reason: "Odgovor sadrzi DB metapodatke koji ukazuju na injekciju." };
   }
+  if (lowered.includes("/etc/passwd") || /root:x:0:0:/.test(text)) {
+    return { confirmed: true, reason: "Odgovor sadrzi sadrzaj /etc/passwd ili osjetljive putanje." };
+  }
+  if (hasSqlErrorMarkers(text)) {
+    return { confirmed: true, reason: "Odgovor sadrzi SQL error poruke." };
+  }
 
   return { confirmed: false, reason: "" };
 }
@@ -585,24 +729,74 @@ function detectApplicationLevelBlock(responseText) {
   return { blocked: false, reason: "" };
 }
 
+function isBaselineBlocked(baseline) {
+  if (!baseline) return false;
+  const status = Number(baseline.statusCode || 0);
+  if (isExplicitBlockStatus(status)) return true;
+  if (status >= 400 && status < 500) return true;
+  return baseline.blocked === true;
+}
+
+function getBaselineComparison(baseline, responseText, responseStatus) {
+  const valid = baseline?.valid || null;
+  const invalid = baseline?.invalid || null;
+  const simValid = valid ? computeSimilarityScore(valid.text, responseText) : null;
+  const simInvalid = invalid ? computeSimilarityScore(invalid.text, responseText) : null;
+  const validStatus = valid ? Number(valid.statusCode || 0) : null;
+  const invalidStatus = invalid ? Number(invalid.statusCode || 0) : null;
+  const sameStatusAsValid = validStatus !== null ? responseStatus === validStatus : null;
+  const sameStatusAsInvalid = invalidStatus !== null ? responseStatus === invalidStatus : null;
+  const invalidBlocked = isBaselineBlocked(invalid);
+  const diffScore = simValid !== null && simInvalid !== null ? Math.abs(simValid - simInvalid) : 0;
+  const invalidLooksMeaningful = Boolean(invalid) && (invalidBlocked || diffScore >= 0.1);
+  return {
+    valid,
+    invalid,
+    simValid,
+    simInvalid,
+    validStatus,
+    invalidStatus,
+    sameStatusAsValid,
+    sameStatusAsInvalid,
+    invalidBlocked,
+    invalidLooksMeaningful,
+  };
+}
+
 function classify2xxWithBaseline({ response, responseText, baseline, method, value, elapsedMs }) {
   const writeMethod = ["POST", "PUT", "PATCH"].includes(String(method || "").toUpperCase());
   const suspicious = hasSuspiciousMarkers(value);
-  const baselineMs = Number(baseline?.elapsedMs || 0);
+  const baselineValid = baseline?.valid || baseline || null;
+  const baselineInvalid = baseline?.invalid || null;
+  const baselineMs = Number(baselineValid?.elapsedMs || 0);
+  const baselineInvalidMs = Number(baselineInvalid?.elapsedMs || 0);
   const isTimeProbe = hasTimeInjectionMarker(value);
-  const suspiciousDelay = isTimeProbe && elapsedMs > Math.max(4000, baselineMs + 2500);
+  const baselineDelay = Math.max(baselineMs, baselineInvalidMs);
+  const suspiciousDelay =
+    isTimeProbe && elapsedMs > Math.max(TIME_MIN_DELAY_MS, baselineDelay + TIME_DELAY_THRESHOLD_MS);
+  const timeHighRisk = baselineDelay > 0 && elapsedMs > baselineDelay * 3;
+
+  if (timeHighRisk) {
+    return buildVerdict({
+      status: "Failed",
+      findingType: "High Risk Delay",
+      severity: "High",
+      note: `Response time ${elapsedMs} ms exceeds baseline x3 (${baselineDelay} ms).`,
+      message: "Time-based scoring indicates high risk of time-based vulnerability.",
+    });
+  }
 
   if (suspiciousDelay) {
     return buildVerdict({
       status: "Failed",
       findingType: "Confirmed Vulnerability",
       severity: "Critical",
-      note: `Possible time-based injection (response ${elapsedMs} ms, baseline ${baselineMs} ms).`,
+      note: `Possible time-based injection (response ${elapsedMs} ms, baseline ${baselineDelay} ms).`,
       message: "Time-based payload caused a significant delay.",
     });
   }
 
-  if (!baseline) {
+  if (!baselineValid) {
     if (suspicious) {
       return buildVerdict({
         status: "Failed",
@@ -621,18 +815,51 @@ function classify2xxWithBaseline({ response, responseText, baseline, method, val
     });
   }
 
+  const baselineCompare = getBaselineComparison(baseline, responseText, Number(response.status));
+  if (baselineCompare.invalidLooksMeaningful && suspicious) {
+    if (
+      baselineCompare.sameStatusAsValid &&
+      baselineCompare.simValid !== null &&
+      baselineCompare.simInvalid !== null &&
+      baselineCompare.simValid > baselineCompare.simInvalid + DIFF_SIMILARITY_THRESHOLD
+    ) {
+      return buildVerdict({
+        status: "Failed",
+        findingType: "Possible Vulnerability",
+        severity: "Medium",
+        note: "Suspicious payload response is closer to valid input than invalid input.",
+        message: "Valid vs invalid baseline indicates the payload was accepted.",
+      });
+    }
+    if (
+      baselineCompare.invalidBlocked &&
+      baselineCompare.sameStatusAsInvalid &&
+      baselineCompare.simValid !== null &&
+      baselineCompare.simInvalid !== null &&
+      baselineCompare.simInvalid >= baselineCompare.simValid + 0.1
+    ) {
+      return buildVerdict({
+        status: "Passed",
+        findingType: "Request Blocked",
+        severity: "Low",
+        note: "Response matches invalid-input baseline, indicating rejection.",
+        message: "Payload was blocked based on valid vs invalid input comparison.",
+      });
+    }
+  }
+
   const currentStatus = Number(response.status);
-  const baselineStatus = Number(baseline.statusCode);
+  const baselineStatus = Number(baselineValid.statusCode);
   const sameStatus = currentStatus === baselineStatus;
-  const sameBody = hasEquivalentBody(baseline.text, responseText);
+  const sameBody = hasEquivalentBody(baselineValid.text, responseText);
 
   if (sameStatus && sameBody) {
     return buildVerdict({
       status: "Passed",
-      findingType: "Input Ignored / Safe Handling",
+      findingType: "Parameter Ignored",
       severity: "Low",
-      note: "No explicit rejection, but the response matches the baseline.",
-      message: "Payload was likely ignored and did not show dangerous handling.",
+      note: "Response matches baseline; parameter appears ignored.",
+      message: "Input did not affect the response.",
     });
   }
 
@@ -734,6 +961,16 @@ function evaluate({ value, response, responseText, baseline, method, elapsedMs }
         severity: "Critical",
         note: exploitEvidence.reason,
         message: "Response contains strong evidence that the payload executed.",
+      });
+    }
+
+    if (contentType.includes("text/html") && looksReflected(responseText, value)) {
+      return buildVerdict({
+        status: "Failed",
+        findingType: "HTML Rendered",
+        severity: "High",
+        note: "Payload reflected within HTML response.",
+        message: "HTML rendering with reflected input indicates possible XSS risk.",
       });
     }
 
@@ -1036,12 +1273,37 @@ app.post("/run-test", runTestLimiter, requireApiKeyIfConfigured, async (req, res
       const baselineStartedAt = Date.now();
       const baselineResponse = await fetchWithTimeout(baselineUrl, baselineOptions);
       const baselineText = await baselineResponse.text().catch(() => "");
-      baseline = { statusCode: baselineResponse.status, text: baselineText, elapsedMs: Date.now() - baselineStartedAt };
+      const baselineBlock = detectApplicationLevelBlock(baselineText);
+      const validBaseline = {
+        statusCode: baselineResponse.status,
+        text: baselineText,
+        elapsedMs: Date.now() - baselineStartedAt,
+        blocked: baselineBlock.blocked,
+      };
+
+      const invalidValue = getInvalidProbeValue(mode);
+      const invalidUrl = buildUrl(baseUrl, defaultPath, queryNames, invalidValue, useProbeQuery);
+      const invalidOptions = buildRequest(normalizedMethod, mode, invalidValue, endpointContext);
+      const invalidStartedAt = Date.now();
+      const invalidResponse = await fetchWithTimeout(invalidUrl, invalidOptions);
+      const invalidText = await invalidResponse.text().catch(() => "");
+      const invalidBlock = detectApplicationLevelBlock(invalidText);
+      const invalidBaseline = {
+        statusCode: invalidResponse.status,
+        text: invalidText,
+        elapsedMs: Date.now() - invalidStartedAt,
+        blocked: invalidBlock.blocked,
+      };
+
+      baseline = { valid: validBaseline, invalid: invalidBaseline };
     } catch (e) {
       baseline = null;
     }
 
-    for (const test of tests) {
+    const chainedTests = buildChainedTests(tests);
+    const allTests = tests.concat(chainedTests);
+
+    for (const test of allTests) {
       try {
         const pathValues = { ...basePathParams };
         if (mode === "path") {
@@ -1065,14 +1327,25 @@ app.post("/run-test", runTestLimiter, requireApiKeyIfConfigured, async (req, res
           elapsedMs,
         });
 
+        const diffVsValid = baseline?.valid ? computeResponseDiff(baseline.valid.text, text) : null;
+        const diffVsInvalid = baseline?.invalid ? computeResponseDiff(baseline.invalid.text, text) : null;
+        const baselineCompare = getBaselineComparison(baseline, text, response.status);
+
         results.push({
           type: test.type,
           payload: test.value,
+          chainedFrom: test.chainedFrom || null,
           status: verdict.status,
           findingType: verdict.findingType || null,
           severity: verdict.severity || null,
           note: verdict.note,
           response: { message: verdict.message, raw: text, statusCode: response.status },
+          diff: {
+            vsValid: diffVsValid,
+            vsInvalid: diffVsInvalid,
+            similarityToValid: baselineCompare.simValid,
+            similarityToInvalid: baselineCompare.simInvalid,
+          },
           timestamp: new Date().toISOString(),
           url: targetUrl,
           method: normalizedMethod,
@@ -1172,6 +1445,7 @@ app.post("/run-test", runTestLimiter, requireApiKeyIfConfigured, async (req, res
       },
       findings: results.map((item) => ({
         testType: item.type,
+        chainedFrom: item.chainedFrom || null,
         status: item.status,
         findingType: item.findingType,
         severity: item.severity,
@@ -1183,6 +1457,7 @@ app.post("/run-test", runTestLimiter, requireApiKeyIfConfigured, async (req, res
         timestamp: item.timestamp,
         elapsedMs: item.elapsedMs,
         payload: item.payload,
+        diff: item.diff || null,
       })),
     };
     const ruleSummary = generateAnalysisSummary({
