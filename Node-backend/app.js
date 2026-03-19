@@ -9,6 +9,14 @@ app.set("trust proxy", 1);
 const PORT = process.env.PORT || 3000;
 const API_KEY = String(process.env.API_KEY || "").trim();
 const API_KEY_HEADER = String(process.env.API_KEY_HEADER || "x-api-key").trim();
+const ALLOWED_EMAILS = String(process.env.ALLOWED_EMAILS || "")
+  .split(",")
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean);
+const ALLOWED_EMAILS = String(process.env.ALLOWED_EMAILS || "")
+  .split(",")
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean);
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 30000);
 const TIME_DELAY_THRESHOLD_MS = Number(process.env.TIME_DELAY_THRESHOLD_MS || 2500);
 const TIME_MIN_DELAY_MS = Number(process.env.TIME_MIN_DELAY_MS || 4000);
@@ -50,6 +58,13 @@ function requireApiKeyIfConfigured(req, res, next) {
   return next();
 }
 
+function isAllowedEmail(userEmail) {
+  const email = String(userEmail || "").trim().toLowerCase();
+  if (!email) return false;
+  if (ALLOWED_EMAILS.length === 0) return false;
+  return ALLOWED_EMAILS.includes(email);
+}
+
 function sanitizeString(s, maxLen = 1024) {
   if (s === null || s === undefined) return "";
   if (typeof s !== "string") s = String(s);
@@ -57,6 +72,13 @@ function sanitizeString(s, maxLen = 1024) {
   t = t.replace(/</g, "&lt;").replace(/>/g, "&gt;");
   if (t.length > maxLen) t = t.slice(0, maxLen);
   return t;
+}
+
+function isAllowedEmail(email) {
+  const normalized = String(email || "").trim().toLowerCase();
+  if (!normalized) return false;
+  if (ALLOWED_EMAILS.length === 0) return false;
+  return ALLOWED_EMAILS.includes(normalized);
 }
 
 async function fetchWithTimeout(url, options, timeoutMs = FETCH_TIMEOUT_MS) {
@@ -1195,11 +1217,15 @@ app.post("/run-test", runTestLimiter, requireApiKeyIfConfigured, async (req, res
     const baseUrl = sanitizeString(raw.baseUrl || "", 2048);
     const path = sanitizeString(raw.path || "", 1024);
     const method = sanitizeString(raw.method || "", 10).toUpperCase();
+    const userEmail = sanitizeString(raw.userEmail || "", 128);
     const endpointContext = sanitizeObject(raw.endpointContext || {});
 
     if (!baseUrl || !path || !method) return res.status(400).json({ error: "Missing parameters" });
     if (!isValidUrl(baseUrl)) return res.status(400).json({ error: "Invalid baseUrl" });
     if (!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].includes(method)) return res.status(400).json({ error: "Invalid method" });
+    if (!isAllowedEmail(userEmail)) {
+      return res.status(403).json({ error: "Access denied for this email." });
+    }
     const normalizedMethod = method.toUpperCase();
     const mode = chooseMode(normalizedMethod, endpointContext);
     const tests = testsByMode[mode] || testsByMode.body;

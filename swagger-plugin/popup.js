@@ -13,6 +13,7 @@ const DEFAULT_DURATION = 5;
 const swaggerInput = document.getElementById("swaggerUrl");
 const swaggerFileInput = document.getElementById("swaggerFile");
 const apiKeyInput = document.getElementById("apiKeyInput");
+const userEmailInput = document.getElementById("userEmailInput");
 const saveApiKeyBtn = document.getElementById("saveApiKey");
 const requestApiKeyBtn = document.getElementById("requestApiKey");
 const loadBtn = document.getElementById("loadSwagger");
@@ -24,6 +25,7 @@ const downloadBtn = document.getElementById("downloadBtn");
 let isRunningTest = false;
 let lastResultForDownload = null;
 let currentApiKey = "";
+let currentUserEmail = "";
 let currentMethodFilter = "GET";
 let currentPathFilter = "";
 let lastSwaggerUrl = "";
@@ -31,18 +33,24 @@ let lastSwaggerUrl = "";
 if (apiKeyInput) {
   apiKeyInput.value = "";
 }
+if (userEmailInput) {
+  userEmailInput.value = "";
+}
 
 if (saveApiKeyBtn) {
   saveApiKeyBtn.addEventListener("click", () => {
     const value = String(apiKeyInput?.value || "").trim();
+    const emailValue = String(userEmailInput?.value || "").trim();
     if (value) {
       currentApiKey = value;
+      currentUserEmail = emailValue;
       output.style.display = "block";
-      output.innerHTML = "API key temporarily set (not saved).";
+      output.innerHTML = "API key and email temporarily set (not saved).";
     } else {
       currentApiKey = "";
+      currentUserEmail = emailValue;
       output.style.display = "block";
-      output.innerHTML = "API key cleared.";
+      output.innerHTML = "API key cleared. Email saved for this session.";
     }
   });
 }
@@ -62,6 +70,9 @@ if (requestApiKeyBtn) {
 
 function getSavedApiKey() {
   return String(currentApiKey || "").trim();
+}
+function getSavedEmail() {
+  return String(currentUserEmail || "").trim();
 }
 
 
@@ -726,10 +737,16 @@ async function runTest(path, method) {
     output.innerHTML = "Unable to determine baseUrl.";
     return;
   }
+  const emailValue = String(userEmailInput?.value || "").trim();
+  if (!emailValue) {
+    output.innerHTML = "Enter your approved email before starting the test.";
+    return;
+  }
   if (!IS_LOCAL_BACKEND && !getSavedApiKey()) {
     output.innerHTML = "Enter an API key before starting the test.";
     return;
   }
+  currentUserEmail = emailValue;
 
   // Rate-limit: allow a small number of runs per minute per endpoint
   try {
@@ -755,6 +772,7 @@ async function runTest(path, method) {
   try {
     const headers = { "Content-Type": "application/json" };
     const savedKey = getSavedApiKey();
+    const savedEmail = getSavedEmail();
     if (!IS_LOCAL_BACKEND && savedKey) {
       headers[API_KEY_HEADER || "x-api-key"] = savedKey;
     }
@@ -764,7 +782,7 @@ async function runTest(path, method) {
       return await fetch(RUN_TEST_URL, {
         method: "POST",
         headers,
-        body: JSON.stringify({ baseUrl, path, method, endpointContext, options }),
+        body: JSON.stringify({ baseUrl, path, method, endpointContext, options, userEmail: savedEmail }),
       });
     }
 
