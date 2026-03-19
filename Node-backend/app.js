@@ -35,9 +35,7 @@ app.use(cors());
 app.use(express.json({ limit: "100kb" }));
 
 function requireApiKeyIfConfigured(req, res, next) {
-  if (!API_KEY) {
-    return res.status(403).json({ error: "API_KEY is not set." });
-  }
+  if (!API_KEY) return next();
   const provided = String(req.get(API_KEY_HEADER) || "").trim();
   if (provided !== API_KEY) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -1192,7 +1190,7 @@ function generateAnalysisSummary({ summary, performance, findings }) {
   };
 }
 
-app.post("/run-test", runTestLimiter, requireApiKeyIfConfigured, async (req, res) => {
+app.post("/run-test", runTestLimiter, async (req, res) => {
   if (activeTests >= MAX_ACTIVE_TESTS) {
     return res.status(429).json({
       error: "Too many active tests. Please try again later."

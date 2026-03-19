@@ -29,11 +29,11 @@ To request an API key, use the request form or email:
 
 Access is granted manually. After approval:
 * add the user's email to `ALLOWED_EMAILS`
-* share the API key with the user
+* confirm the user can run tests with their approved email
 
 To revoke access:
 * remove the email from `ALLOWED_EMAILS`
-* or rotate `API_KEY` to invalidate all existing access
+* or rotate `API_KEY` to invalidate all existing access (if enabled)
 
 # How the app works
 
@@ -49,21 +49,22 @@ To revoke access:
 1. Backend
    - `cd Node-backend`
    - `npm install`
-   - `set API_KEY=your_key_here`
+   - `set ALLOWED_EMAILS=you@example.com`
    - `node app.js`
 
 2. Chrome extension
    - Open `chrome://extensions`
    - Enable **Developer mode**
    - Click **Load unpacked** and select `swagger-plugin`
-   - In the UI, set the backend URL (default is already set) and enter the API key
+   - In the UI, set the backend URL (default is already set) and enter your approved email
 
 # Configuration
 
 Backend environment variables:
 
-* `API_KEY` – required for all requests
+* `API_KEY` – optional server-side key (not exposed to clients)
 * `API_KEY_HEADER` – header name for the key (default: `x-api-key`)
+* `ALLOWED_EMAILS` – comma-separated allowlist of emails (required for access)
 * `FETCH_TIMEOUT_MS` – request timeout (default: 30000)
 * `TIME_DELAY_THRESHOLD_MS` – extra delay threshold for time-based checks (default: 2500)
 * `TIME_MIN_DELAY_MS` – minimum delay threshold for time-based checks (default: 4000)
