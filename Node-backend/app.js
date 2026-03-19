@@ -13,10 +13,6 @@ const ALLOWED_EMAILS = String(process.env.ALLOWED_EMAILS || "")
   .split(",")
   .map((email) => email.trim().toLowerCase())
   .filter(Boolean);
-const ALLOWED_EMAILS = String(process.env.ALLOWED_EMAILS || "")
-  .split(",")
-  .map((email) => email.trim().toLowerCase())
-  .filter(Boolean);
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 30000);
 const TIME_DELAY_THRESHOLD_MS = Number(process.env.TIME_DELAY_THRESHOLD_MS || 2500);
 const TIME_MIN_DELAY_MS = Number(process.env.TIME_MIN_DELAY_MS || 4000);
@@ -56,13 +52,6 @@ function requireApiKeyIfConfigured(req, res, next) {
   fresh.push(now);
   keyHits.set(key, fresh);
   return next();
-}
-
-function isAllowedEmail(userEmail) {
-  const email = String(userEmail || "").trim().toLowerCase();
-  if (!email) return false;
-  if (ALLOWED_EMAILS.length === 0) return false;
-  return ALLOWED_EMAILS.includes(email);
 }
 
 function sanitizeString(s, maxLen = 1024) {
