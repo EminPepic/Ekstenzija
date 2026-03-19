@@ -25,6 +25,16 @@ Use this tool **only** on systems you own or have explicit permission to test. D
 To request an API key, use the request form or email:
 `mailto:eminpepic2003@gmail.com`
 
+# Operations (access & revocation)
+
+Access is granted manually. After approval:
+* add the user's email to `ALLOWED_EMAILS`
+* share the API key with the user
+
+To revoke access:
+* remove the email from `ALLOWED_EMAILS`
+* or rotate `API_KEY` to invalidate all existing access
+
 # How the app works
 
 1. The user enters a **Swagger/OpenAPI URL** in the Chrome extension
