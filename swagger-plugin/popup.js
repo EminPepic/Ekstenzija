@@ -1,6 +1,6 @@
 ﻿let currentSwagger = null;
-//const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "http://localhost:3000").trim();
-const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "https://swagger-tester-backend.onrender.com").trim();
+const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "http://localhost:3000").trim();
+//const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "https://swagger-tester-backend.onrender.com").trim();
 const RUN_TEST_URL = `${BACKEND_URL.replace(/\/+$/, "")}/run-test`;
 const API_KEY_HEADER = "x-api-key";
 const _lastRuns = {};
@@ -14,6 +14,7 @@ const swaggerInput = document.getElementById("swaggerUrl");
 const swaggerFileInput = document.getElementById("swaggerFile");
 const apiKeyInput = document.getElementById("apiKeyInput");
 const saveApiKeyBtn = document.getElementById("saveApiKey");
+const requestApiKeyBtn = document.getElementById("requestApiKey");
 const loadBtn = document.getElementById("loadSwagger");
 const output = document.getElementById("output");
 const timeline = document.getElementById("timeline");
@@ -42,6 +43,19 @@ if (saveApiKeyBtn) {
       currentApiKey = "";
       output.style.display = "block";
       output.innerHTML = "API key cleared.";
+    }
+  });
+}
+
+if (requestApiKeyBtn) {
+  requestApiKeyBtn.addEventListener("click", () => {
+    const url = (typeof chrome !== "undefined" && chrome.runtime?.getURL)
+      ? chrome.runtime.getURL("request-access.html")
+      : "request-access.html";
+    if (typeof chrome !== "undefined" && chrome.tabs?.create) {
+      chrome.tabs.create({ url });
+    } else {
+      window.open(url, "_blank");
     }
   });
 }

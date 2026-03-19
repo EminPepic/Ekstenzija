@@ -22,8 +22,8 @@ Use this tool **only** on systems you own or have explicit permission to test. D
 
 # API key access
 
-To request an API key, fill out the access form:
-`REPLACE_WITH_FORM_URL`
+To request an API key, use the request form or email:
+`mailto:eminpepic2003@gmail.com`
 
 # How the app works
 
