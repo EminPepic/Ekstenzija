@@ -16,6 +16,10 @@ Automatically:
 * performs a lightweight performance test
 * generates a structured report
 
+# Responsible use
+
+Use this tool **only** on systems you own or have explicit permission to test. Do not use it against production services without authorization.
+
 # How the app works
 
 1. The user enters a **Swagger/OpenAPI URL** in the Chrome extension
@@ -24,6 +28,32 @@ Automatically:
 4. The data is sent to the backend service
 5. The backend runs security and performance tests
 6. A **complete report** is generated and displayed in the extension
+
+# Quick start (local)
+
+1. Backend
+   - `cd Node-backend`
+   - `npm install`
+   - `set API_KEY=your_key_here`
+   - `node app.js`
+
+2. Chrome extension
+   - Open `chrome://extensions`
+   - Enable **Developer mode**
+   - Click **Load unpacked** and select `swagger-plugin`
+   - In the UI, set the backend URL (default is already set) and enter the API key
+
+# Configuration
+
+Backend environment variables:
+
+* `API_KEY` – required for all requests
+* `API_KEY_HEADER` – header name for the key (default: `x-api-key`)
+* `FETCH_TIMEOUT_MS` – request timeout (default: 30000)
+* `TIME_DELAY_THRESHOLD_MS` – extra delay threshold for time-based checks (default: 2500)
+* `TIME_MIN_DELAY_MS` – minimum delay threshold for time-based checks (default: 4000)
+* `DIFF_SIMILARITY_THRESHOLD` – similarity threshold for valid vs invalid comparison (default: 0.15)
+* `MAX_CHAINED_TESTS` – number of chained payload tests (default: 12)
    
 # Security tests
 
