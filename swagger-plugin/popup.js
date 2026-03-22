@@ -2,7 +2,10 @@
 //const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "http://localhost:3000").trim();
 const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "https://swagger-tester-backend.onrender.com").trim();
 const RUN_TEST_URL = `${BACKEND_URL.replace(/\/+$/, "")}/run-test`;
-const API_KEY_HEADER = "x-api-key";
+const REQUEST_API_KEY_URL = `${BACKEND_URL.replace(/\/+$/, "")}/request-api-key`;
+const API_TOKEN_HEADER = "x-api-token";
+const API_TOKEN_STORAGE_KEY = "swaggerTesterApiToken";
+const API_TOKEN_MASK_STORAGE_KEY = "swaggerTesterApiMask";
 const _lastRuns = {};
 const _maxRunsPerMinute = 2;
 const IS_LOCAL_BACKEND = /^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(BACKEND_URL);
@@ -12,7 +15,7 @@ const DEFAULT_DURATION = 5;
 
 const swaggerInput = document.getElementById("swaggerUrl");
 const swaggerFileInput = document.getElementById("swaggerFile");
-const userEmailInput = document.getElementById("userEmailInput");
+const apiKeyInput = document.getElementById("apiKeyInput");
 const requestApiKeyBtn = document.getElementById("requestApiKey");
 const loadBtn = document.getElementById("loadSwagger");
 const output = document.getElementById("output");
@@ -22,30 +25,48 @@ const backBtn = document.getElementById("backBtn");
 const downloadBtn = document.getElementById("downloadBtn");
 let isRunningTest = false;
 let lastResultForDownload = null;
-let currentUserEmail = "";
+let currentApiToken = "";
+let currentApiMask = "";
 let currentMethodFilter = "GET";
 let currentPathFilter = "";
 let lastSwaggerUrl = "";
 
-if (userEmailInput) {
-  userEmailInput.value = "";
+currentApiToken = String(localStorage.getItem(API_TOKEN_STORAGE_KEY) || "").trim();
+currentApiMask = String(localStorage.getItem(API_TOKEN_MASK_STORAGE_KEY) || "").trim();
+if (apiKeyInput) {
+  apiKeyInput.value = currentApiMask || "";
 }
 
 if (requestApiKeyBtn) {
-  requestApiKeyBtn.addEventListener("click", () => {
-    const url = (typeof chrome !== "undefined" && chrome.runtime?.getURL)
-      ? chrome.runtime.getURL("request-access.html")
-      : "request-access.html";
-    if (typeof chrome !== "undefined" && chrome.tabs?.create) {
-      chrome.tabs.create({ url });
-    } else {
-      window.open(url, "_blank");
+  requestApiKeyBtn.addEventListener("click", async () => {
+    try {
+      output.style.display = "block";
+      output.innerHTML = 'Requesting API key<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
+      const response = await fetch(REQUEST_API_KEY_URL, { method: "POST" });
+      if (!response.ok) {
+        const msg = `API key request failed (HTTP ${response.status})`;
+        throw new Error(msg);
+      }
+      const data = await response.json();
+      const token = String(data?.token || "").trim();
+      const masked = String(data?.masked || "").trim();
+      if (!token || !masked) {
+        throw new Error("API key response was invalid.");
+      }
+      currentApiToken = token;
+      currentApiMask = masked;
+      localStorage.setItem(API_TOKEN_STORAGE_KEY, token);
+      localStorage.setItem(API_TOKEN_MASK_STORAGE_KEY, masked);
+      if (apiKeyInput) apiKeyInput.value = masked;
+      output.innerHTML = "API key is ready. You can start tests.";
+    } catch (err) {
+      output.innerHTML = `API key request failed: ${escapeHtml(err?.message || "Unknown error")}`;
     }
   });
 }
 
-function getSavedEmail() {
-  return String(currentUserEmail || "").trim();
+function getSavedApiToken() {
+  return String(currentApiToken || "").trim();
 }
 
 
@@ -710,12 +731,11 @@ async function runTest(path, method) {
     output.innerHTML = "Unable to determine baseUrl.";
     return;
   }
-  const emailValue = String(userEmailInput?.value || "").trim();
-  if (!emailValue) {
-    output.innerHTML = "Enter your approved email before starting the test.";
+  const apiToken = getSavedApiToken();
+  if (!apiToken) {
+    output.innerHTML = "Request an API key before starting the test.";
     return;
   }
-  currentUserEmail = emailValue;
 
   // Rate-limit: allow a small number of runs per minute per endpoint
   try {
@@ -740,14 +760,14 @@ async function runTest(path, method) {
 
   try {
     const headers = { "Content-Type": "application/json" };
-    const savedEmail = getSavedEmail();
+    headers[API_TOKEN_HEADER] = apiToken;
     const options = { connections: DEFAULT_CONCURRENCY, duration: DEFAULT_DURATION };
 
     async function sendRunTest() {
       return await fetch(RUN_TEST_URL, {
         method: "POST",
         headers,
-        body: JSON.stringify({ baseUrl, path, method, endpointContext, options, userEmail: savedEmail }),
+        body: JSON.stringify({ baseUrl, path, method, endpointContext, options, apiKeyToken: apiToken }),
       });
     }
 

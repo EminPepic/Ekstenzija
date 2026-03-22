@@ -22,17 +22,17 @@ Use this tool **only** on systems you own or have explicit permission to test. D
 
 # API key access
 
-To request an API key, use the request form or email:
-`mailto:eminpepic2003@gmail.com`
+Users request an API key from the Chrome extension by clicking **Request API key**.
+The backend issues a short-lived token and the UI shows a masked value only.
 
 # Operations (access & revocation)
 
-Access is granted manually. After approval:
-* add the user's email to `ALLOWED_EMAILS`
-* confirm the user can run tests with their approved email
+Access is granted by adding keys to the backend configuration:
+* add one or more keys to `CLIENT_API_KEYS`
+* the backend issues temporary tokens on request
 
 To revoke access:
-* remove the email from `ALLOWED_EMAILS`
+* rotate/remove keys from `CLIENT_API_KEYS`
 * or rotate `API_KEY` to invalidate all existing access (if enabled)
 
 # How the app works
@@ -49,14 +49,14 @@ To revoke access:
 1. Backend
    - `cd Node-backend`
    - `npm install`
-   - `set ALLOWED_EMAILS=you@example.com`
+   - `set API_KEY=your-secret-key`
    - `node app.js`
 
 2. Chrome extension
    - Open `chrome://extensions`
    - Enable **Developer mode**
    - Click **Load unpacked** and select `swagger-plugin`
-   - In the UI, set the backend URL (default is already set) and enter your approved email
+   - In the UI, set the backend URL (default is already set) and click **Request API key**
 
 # Configuration
 
@@ -146,3 +146,5 @@ Running tests:
 POST /run-test
 ```
 *automatic API security and performance testing*.
+
+

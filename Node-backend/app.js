@@ -3,16 +3,14 @@ const cors = require("cors");
 const fetch = require("node-fetch");
 const autocannon = require("autocannon");
 const rateLimit = require("express-rate-limit");
+const crypto = require("crypto");
 
 const app = express();
 app.set("trust proxy", 1);
 const PORT = process.env.PORT || 3000;
 const API_KEY = String(process.env.API_KEY || "").trim();
 const API_KEY_HEADER = String(process.env.API_KEY_HEADER || "x-api-key").trim();
-const ALLOWED_EMAILS = String(process.env.ALLOWED_EMAILS || "")
-  .split(",")
-  .map((email) => email.trim().toLowerCase())
-  .filter(Boolean);
+const API_TOKEN_TTL_MS = Number(process.env.API_TOKEN_TTL_MS || 6 * 60 * 60 * 1000);
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 30000);
 const TIME_DELAY_THRESHOLD_MS = Number(process.env.TIME_DELAY_THRESHOLD_MS || 2500);
 const TIME_MIN_DELAY_MS = Number(process.env.TIME_MIN_DELAY_MS || 4000);
@@ -24,6 +22,7 @@ const MAX_ACTIVE_TESTS = 2;
 const KEY_WINDOW_MS = 60 * 1000;
 const MAX_TESTS_PER_KEY = Number(process.env.MAX_TESTS_PER_KEY || 10);
 const keyHits = new Map();
+const issuedTokens = new Map();
 
 const runTestLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
@@ -61,11 +60,27 @@ function sanitizeString(s, maxLen = 1024) {
   return t;
 }
 
-function isAllowedEmail(email) {
-  const normalized = String(email || "").trim().toLowerCase();
-  if (!normalized) return false;
-  if (ALLOWED_EMAILS.length === 0) return false;
-  return ALLOWED_EMAILS.includes(normalized);
+function pickApiKey() {
+  if (API_KEY) return API_KEY;
+  return "";
+}
+
+function generateMaskedKey() {
+  return crypto.randomBytes(6).toString("base64").replace(/[^a-zA-Z0-9]/g, "").slice(0, 8);
+}
+
+function issueToken(key) {
+  const token = crypto.randomBytes(24).toString("hex");
+  const expiresAt = Date.now() + API_TOKEN_TTL_MS;
+  issuedTokens.set(token, { key, expiresAt });
+  return token;
+}
+
+function pruneExpiredTokens() {
+  const now = Date.now();
+  for (const [token, data] of issuedTokens.entries()) {
+    if (!data || data.expiresAt <= now) issuedTokens.delete(token);
+  }
 }
 
 async function fetchWithTimeout(url, options, timeoutMs = FETCH_TIMEOUT_MS) {
@@ -114,6 +129,17 @@ function isValidUrl(s) {
 }
 
 app.get("/health", (req, res) => res.json({ ok: true }));
+
+app.post("/request-api-key", (req, res) => {
+  pruneExpiredTokens();
+  const key = pickApiKey();
+  if (!key) {
+    return res.status(503).json({ error: "API keys are not configured." });
+  }
+  const token = issueToken(key);
+  const masked = generateMaskedKey();
+  return res.json({ token, masked, expiresInMs: API_TOKEN_TTL_MS });
+});
 
 const testsByMode = {
   query: [
@@ -1204,14 +1230,19 @@ app.post("/run-test", runTestLimiter, async (req, res) => {
     const baseUrl = sanitizeString(raw.baseUrl || "", 2048);
     const path = sanitizeString(raw.path || "", 1024);
     const method = sanitizeString(raw.method || "", 10).toUpperCase();
-    const userEmail = sanitizeString(raw.userEmail || "", 128);
+    const apiToken = String(req.get("x-api-token") || raw.apiKeyToken || "").trim();
     const endpointContext = sanitizeObject(raw.endpointContext || {});
 
     if (!baseUrl || !path || !method) return res.status(400).json({ error: "Missing parameters" });
     if (!isValidUrl(baseUrl)) return res.status(400).json({ error: "Invalid baseUrl" });
     if (!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].includes(method)) return res.status(400).json({ error: "Invalid method" });
-    if (!isAllowedEmail(userEmail)) {
-      return res.status(403).json({ error: "Access denied for this email." });
+    if (!apiToken) {
+      return res.status(403).json({ error: "Missing API key." });
+    }
+    pruneExpiredTokens();
+    const tokenData = issuedTokens.get(apiToken);
+    if (!tokenData) {
+      return res.status(403).json({ error: "Invalid or expired API key." });
     }
     const normalizedMethod = method.toUpperCase();
     const mode = chooseMode(normalizedMethod, endpointContext);
