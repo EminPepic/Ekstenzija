@@ -13,7 +13,7 @@ const API_KEYS = String(process.env.API_KEY || "")
   .map((key) => key.trim())
   .filter(Boolean);
 const API_KEY_HEADER = String(process.env.API_KEY_HEADER || "x-api-key").trim();
-const API_TOKEN_TTL_MS = Number(process.env.API_TOKEN_TTL_MS || 6 * 60 * 60 * 1000);
+const API_TOKEN_TTL_MS = Number(process.env.API_TOKEN_TTL_MS || 15 * 60 * 1000);
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 30000);
 const TIME_DELAY_THRESHOLD_MS = Number(process.env.TIME_DELAY_THRESHOLD_MS || 2500);
 const TIME_MIN_DELAY_MS = Number(process.env.TIME_MIN_DELAY_MS || 4000);

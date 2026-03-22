@@ -31,7 +31,7 @@ let lastSwaggerUrl = "";
 
 currentApiToken = String(localStorage.getItem(API_TOKEN_STORAGE_KEY) || "").trim();
 if (apiKeyInput) {
-  apiKeyInput.value = currentApiToken ? "*****" : "";
+  apiKeyInput.value = currentApiToken ? "********" : "";
   apiKeyInput.addEventListener("copy", (e) => e.preventDefault());
   apiKeyInput.addEventListener("cut", (e) => e.preventDefault());
   apiKeyInput.addEventListener("paste", (e) => e.preventDefault());
@@ -58,7 +58,7 @@ if (requestApiKeyBtn) {
       }
       currentApiToken = token;
       localStorage.setItem(API_TOKEN_STORAGE_KEY, token);
-      if (apiKeyInput) apiKeyInput.value = "*****";
+      if (apiKeyInput) apiKeyInput.value = "********";
       output.innerHTML = "API key is ready. You can start tests.";
     } catch (err) {
       output.innerHTML = `API key request failed: ${escapeHtml(err?.message || "Unknown error")}`;
