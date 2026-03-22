@@ -5,7 +5,6 @@ const RUN_TEST_URL = `${BACKEND_URL.replace(/\/+$/, "")}/run-test`;
 const REQUEST_API_KEY_URL = `${BACKEND_URL.replace(/\/+$/, "")}/request-api-key`;
 const API_TOKEN_HEADER = "x-api-token";
 const API_TOKEN_STORAGE_KEY = "swaggerTesterApiToken";
-const API_TOKEN_MASK_STORAGE_KEY = "swaggerTesterApiMask";
 const _lastRuns = {};
 const _maxRunsPerMinute = 2;
 const IS_LOCAL_BACKEND = /^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(BACKEND_URL);
@@ -15,8 +14,8 @@ const DEFAULT_DURATION = 5;
 
 const swaggerInput = document.getElementById("swaggerUrl");
 const swaggerFileInput = document.getElementById("swaggerFile");
-const apiKeyInput = document.getElementById("apiKeyInput");
 const requestApiKeyBtn = document.getElementById("requestApiKey");
+const apiKeyInput = document.getElementById("apiKeyInput");
 const loadBtn = document.getElementById("loadSwagger");
 const output = document.getElementById("output");
 const timeline = document.getElementById("timeline");
@@ -26,15 +25,19 @@ const downloadBtn = document.getElementById("downloadBtn");
 let isRunningTest = false;
 let lastResultForDownload = null;
 let currentApiToken = "";
-let currentApiMask = "";
 let currentMethodFilter = "GET";
 let currentPathFilter = "";
 let lastSwaggerUrl = "";
 
 currentApiToken = String(localStorage.getItem(API_TOKEN_STORAGE_KEY) || "").trim();
-currentApiMask = String(localStorage.getItem(API_TOKEN_MASK_STORAGE_KEY) || "").trim();
 if (apiKeyInput) {
-  apiKeyInput.value = currentApiMask || "";
+  apiKeyInput.value = currentApiToken ? "*****" : "";
+  apiKeyInput.addEventListener("copy", (e) => e.preventDefault());
+  apiKeyInput.addEventListener("cut", (e) => e.preventDefault());
+  apiKeyInput.addEventListener("paste", (e) => e.preventDefault());
+  apiKeyInput.addEventListener("keydown", (e) => e.preventDefault());
+  apiKeyInput.addEventListener("contextmenu", (e) => e.preventDefault());
+  apiKeyInput.addEventListener("selectstart", (e) => e.preventDefault());
 }
 
 if (requestApiKeyBtn) {
@@ -54,10 +57,8 @@ if (requestApiKeyBtn) {
         throw new Error("API key response was invalid.");
       }
       currentApiToken = token;
-      currentApiMask = masked;
       localStorage.setItem(API_TOKEN_STORAGE_KEY, token);
-      localStorage.setItem(API_TOKEN_MASK_STORAGE_KEY, masked);
-      if (apiKeyInput) apiKeyInput.value = masked;
+      if (apiKeyInput) apiKeyInput.value = "*****";
       output.innerHTML = "API key is ready. You can start tests.";
     } catch (err) {
       output.innerHTML = `API key request failed: ${escapeHtml(err?.message || "Unknown error")}`;

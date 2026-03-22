@@ -8,7 +8,10 @@ const crypto = require("crypto");
 const app = express();
 app.set("trust proxy", 1);
 const PORT = process.env.PORT || 3000;
-const API_KEY = String(process.env.API_KEY || "").trim();
+const API_KEYS = String(process.env.API_KEY || "")
+  .split(",")
+  .map((key) => key.trim())
+  .filter(Boolean);
 const API_KEY_HEADER = String(process.env.API_KEY_HEADER || "x-api-key").trim();
 const API_TOKEN_TTL_MS = Number(process.env.API_TOKEN_TTL_MS || 6 * 60 * 60 * 1000);
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 30000);
@@ -34,9 +37,9 @@ app.use(cors());
 app.use(express.json({ limit: "100kb" }));
 
 function requireApiKeyIfConfigured(req, res, next) {
-  if (!API_KEY) return next();
+  if (API_KEYS.length === 0) return next();
   const provided = String(req.get(API_KEY_HEADER) || "").trim();
-  if (provided !== API_KEY) {
+  if (!API_KEYS.includes(provided)) {
     return res.status(401).json({ error: "Unauthorized" });
   }
   const now = Date.now();
@@ -61,8 +64,8 @@ function sanitizeString(s, maxLen = 1024) {
 }
 
 function pickApiKey() {
-  if (API_KEY) return API_KEY;
-  return "";
+  if (API_KEYS.length === 0) return "";
+  return API_KEYS[Math.floor(Math.random() * API_KEYS.length)];
 }
 
 function generateMaskedKey() {

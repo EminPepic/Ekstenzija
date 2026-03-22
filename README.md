@@ -49,7 +49,7 @@ To revoke access:
 1. Backend
    - `cd Node-backend`
    - `npm install`
-   - `set API_KEY=your-secret-key`
+   - `set API_KEY=key1,key2`
    - `node app.js`
 
 2. Chrome extension
@@ -146,5 +146,6 @@ Running tests:
 POST /run-test
 ```
 *automatic API security and performance testing*.
+
 
 
