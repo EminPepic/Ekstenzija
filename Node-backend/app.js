@@ -33,7 +33,7 @@ const runTestLimiter = rateLimit({
   message: { error: "Too many requests. Please try again later." }
 });
 
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: "100kb" }));
 
 function requireApiKeyIfConfigured(req, res, next) {
@@ -84,6 +84,20 @@ function pruneExpiredTokens() {
   for (const [token, data] of issuedTokens.entries()) {
     if (!data || data.expiresAt <= now) issuedTokens.delete(token);
   }
+}
+
+function getCookie(req, name) {
+  const raw = String(req.headers?.cookie || "");
+  if (!raw) return "";
+  const parts = raw.split(";").map((p) => p.trim());
+  for (const part of parts) {
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    const k = part.slice(0, eq).trim();
+    const v = part.slice(eq + 1).trim();
+    if (k === name) return decodeURIComponent(v);
+  }
+  return "";
 }
 
 async function fetchWithTimeout(url, options, timeoutMs = FETCH_TIMEOUT_MS) {
@@ -141,7 +155,13 @@ app.post("/request-api-key", (req, res) => {
   }
   const token = issueToken(key);
   const masked = generateMaskedKey();
-  return res.json({ token, masked, expiresInMs: API_TOKEN_TTL_MS });
+  res.cookie("api_token", token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "None",
+    maxAge: API_TOKEN_TTL_MS,
+  });
+  return res.json({ masked, expiresInMs: API_TOKEN_TTL_MS });
 });
 
 const testsByMode = {
@@ -1233,7 +1253,7 @@ app.post("/run-test", runTestLimiter, async (req, res) => {
     const baseUrl = sanitizeString(raw.baseUrl || "", 2048);
     const path = sanitizeString(raw.path || "", 1024);
     const method = sanitizeString(raw.method || "", 10).toUpperCase();
-    const apiToken = String(req.get("x-api-token") || raw.apiKeyToken || "").trim();
+    const apiToken = String(req.get("x-api-token") || raw.apiKeyToken || getCookie(req, "api_token") || "").trim();
     const endpointContext = sanitizeObject(raw.endpointContext || {});
 
     if (!baseUrl || !path || !method) return res.status(400).json({ error: "Missing parameters" });

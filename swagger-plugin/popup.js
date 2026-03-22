@@ -3,8 +3,6 @@
 const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "https://swagger-tester-backend.onrender.com").trim();
 const RUN_TEST_URL = `${BACKEND_URL.replace(/\/+$/, "")}/run-test`;
 const REQUEST_API_KEY_URL = `${BACKEND_URL.replace(/\/+$/, "")}/request-api-key`;
-const API_TOKEN_HEADER = "x-api-token";
-const API_TOKEN_STORAGE_KEY = "swaggerTesterApiToken";
 const _lastRuns = {};
 const _maxRunsPerMinute = 2;
 const IS_LOCAL_BACKEND = /^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(BACKEND_URL);
@@ -24,14 +22,13 @@ const backBtn = document.getElementById("backBtn");
 const downloadBtn = document.getElementById("downloadBtn");
 let isRunningTest = false;
 let lastResultForDownload = null;
-let currentApiToken = "";
+let hasApiKey = false;
 let currentMethodFilter = "GET";
 let currentPathFilter = "";
 let lastSwaggerUrl = "";
 
-currentApiToken = String(localStorage.getItem(API_TOKEN_STORAGE_KEY) || "").trim();
 if (apiKeyInput) {
-  apiKeyInput.value = currentApiToken ? "********" : "";
+  apiKeyInput.value = "";
   apiKeyInput.addEventListener("copy", (e) => e.preventDefault());
   apiKeyInput.addEventListener("cut", (e) => e.preventDefault());
   apiKeyInput.addEventListener("paste", (e) => e.preventDefault());
@@ -45,19 +42,17 @@ if (requestApiKeyBtn) {
     try {
       output.style.display = "block";
       output.innerHTML = 'Requesting API key<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
-      const response = await fetch(REQUEST_API_KEY_URL, { method: "POST" });
+      const response = await fetch(REQUEST_API_KEY_URL, { method: "POST", credentials: "include" });
       if (!response.ok) {
         const msg = `API key request failed (HTTP ${response.status})`;
         throw new Error(msg);
       }
       const data = await response.json();
-      const token = String(data?.token || "").trim();
       const masked = String(data?.masked || "").trim();
-      if (!token || !masked) {
+      if (!masked) {
         throw new Error("API key response was invalid.");
       }
-      currentApiToken = token;
-      localStorage.setItem(API_TOKEN_STORAGE_KEY, token);
+      hasApiKey = true;
       if (apiKeyInput) apiKeyInput.value = "********";
       output.innerHTML = "API key is ready. You can start tests.";
     } catch (err) {
@@ -67,7 +62,7 @@ if (requestApiKeyBtn) {
 }
 
 function getSavedApiToken() {
-  return String(currentApiToken || "").trim();
+  return "";
 }
 
 
@@ -732,8 +727,7 @@ async function runTest(path, method) {
     output.innerHTML = "Unable to determine baseUrl.";
     return;
   }
-  const apiToken = getSavedApiToken();
-  if (!apiToken) {
+  if (!hasApiKey) {
     output.innerHTML = "Request an API key before starting the test.";
     return;
   }
@@ -761,14 +755,14 @@ async function runTest(path, method) {
 
   try {
     const headers = { "Content-Type": "application/json" };
-    headers[API_TOKEN_HEADER] = apiToken;
     const options = { connections: DEFAULT_CONCURRENCY, duration: DEFAULT_DURATION };
 
     async function sendRunTest() {
       return await fetch(RUN_TEST_URL, {
         method: "POST",
         headers,
-        body: JSON.stringify({ baseUrl, path, method, endpointContext, options, apiKeyToken: apiToken }),
+        credentials: "include",
+        body: JSON.stringify({ baseUrl, path, method, endpointContext, options }),
       });
     }
 
