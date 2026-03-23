@@ -65,7 +65,7 @@ const FOLLOW_REDIRECTS = String(process.env.FOLLOW_REDIRECTS || "false").toLower
 const BAN_WINDOW_MS = Number(process.env.BAN_WINDOW_MS || 10 * 60 * 1000);
 const BAN_THRESHOLD = Number(process.env.BAN_THRESHOLD || 3);
 const BAN_DURATION_MS = Number(process.env.BAN_DURATION_MS || 60 * 60 * 1000);
-const DAILY_TEST_LIMIT = Number(process.env.DAILY_TEST_LIMIT || 100);
+const DAILY_TEST_LIMIT = Number(process.env.DAILY_TEST_LIMIT || 75);
 const DAILY_TOKEN_LIMIT = Number(process.env.DAILY_TOKEN_LIMIT || 100);
 
 let activeTests = 0;
