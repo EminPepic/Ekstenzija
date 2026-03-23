@@ -49,6 +49,8 @@ const INVITE_KEY = String(process.env.INVITE_KEY || "").trim();
 const BAN_WINDOW_MS = Number(process.env.BAN_WINDOW_MS || 10 * 60 * 1000);
 const BAN_THRESHOLD = Number(process.env.BAN_THRESHOLD || 5);
 const BAN_DURATION_MS = Number(process.env.BAN_DURATION_MS || 60 * 60 * 1000);
+const DAILY_TEST_LIMIT = Number(process.env.DAILY_TEST_LIMIT || 200);
+const DAILY_TOKEN_LIMIT = Number(process.env.DAILY_TOKEN_LIMIT || 100);
 
 let activeTests = 0;
 const MAX_ACTIVE_TESTS = 2; 
@@ -58,6 +60,7 @@ const keyHits = new Map();
 const issuedTokens = new Map();
 const deniedHits = new Map();
 const bannedIps = new Map();
+const dailyUsage = new Map();
 
 const runTestLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
@@ -253,6 +256,29 @@ function safeAppendAudit(entry) {
   }
 }
 
+function getDayKey(d = new Date()) {
+  return d.toISOString().slice(0, 10);
+}
+
+function bumpDailyCounter(name, limit) {
+  if (!Number.isFinite(limit) || limit <= 0) return { allowed: true, count: 0 };
+  const today = getDayKey();
+  const key = `${name}:${today}`;
+  const current = dailyUsage.get(key) || 0;
+  if (current >= limit) return { allowed: false, count: current };
+  const next = current + 1;
+  dailyUsage.set(key, next);
+  return { allowed: true, count: next };
+}
+
+function isDailyLimitReached(name, limit) {
+  if (!Number.isFinite(limit) || limit <= 0) return false;
+  const today = getDayKey();
+  const key = `${name}:${today}`;
+  const current = dailyUsage.get(key) || 0;
+  return current >= limit;
+}
+
 function noteDenied(ip, reason, meta = {}) {
   if (!ip) return;
   const now = Date.now();
@@ -373,6 +399,10 @@ app.post("/request-api-key", tokenIssueLimiter, (req, res) => {
     safeAppendAudit({ event: "request_api_key_denied", reason: "ip_banned", ip: req.ip });
     return res.status(403).json({ error: "Access temporarily blocked." });
   }
+  if (isDailyLimitReached("token", DAILY_TOKEN_LIMIT)) {
+    safeAppendAudit({ event: "request_api_key_denied", reason: "daily_token_limit", ip: req.ip });
+    return res.status(429).json({ error: "Daily token limit reached." });
+  }
   if (INVITE_KEY) {
     const providedInvite =
       String(req.get("x-invite-key") || req.body?.inviteKey || "").trim();
@@ -382,6 +412,7 @@ app.post("/request-api-key", tokenIssueLimiter, (req, res) => {
     }
   }
   pruneExpiredTokens();
+  bumpDailyCounter("token", DAILY_TOKEN_LIMIT);
   const key = pickApiKey();
   if (!key) {
     return res.status(503).json({ error: "API keys are not configured." });
@@ -391,7 +422,6 @@ app.post("/request-api-key", tokenIssueLimiter, (req, res) => {
   const reqUa = String(req.get("user-agent") || "").trim();
   const tokenData = issuedTokens.get(token);
   if (tokenData) {
-    tokenData.ip = reqIp;
     tokenData.ua = reqUa;
   }
   const masked = generateMaskedKey();
@@ -1493,6 +1523,10 @@ app.post("/run-test", runTestLimiter, async (req, res) => {
     safeAppendAudit({ event: "run_test_denied", reason: "ip_banned", ip: req.ip });
     return res.status(403).json({ error: "Access temporarily blocked." });
   }
+  if (isDailyLimitReached("test", DAILY_TEST_LIMIT)) {
+    safeAppendAudit({ event: "run_test_denied", reason: "daily_test_limit", ip: req.ip });
+    return res.status(429).json({ error: "Daily test limit reached." });
+  }
   if (activeTests >= MAX_ACTIVE_TESTS) {
     return res.status(429).json({
       error: "Too many active tests. Please try again later."
@@ -1539,17 +1573,6 @@ app.post("/run-test", runTestLimiter, async (req, res) => {
       noteDenied(req.ip, "invalid_token", { baseUrl });
       return res.status(403).json({ error: "Invalid or expired API key." });
     }
-    if (tokenData.ip && tokenData.ip !== req.ip) {
-      safeAppendAudit({
-        event: "run_test_denied",
-        reason: "ip_mismatch",
-        ip: req.ip,
-        tokenIp: tokenData.ip,
-        baseUrl,
-      });
-      noteDenied(req.ip, "ip_mismatch", { baseUrl });
-      return res.status(403).json({ error: "API key not valid for this IP." });
-    }
     const currentUa = String(req.get("user-agent") || "").trim();
     if (tokenData.ua && currentUa && tokenData.ua !== currentUa) {
       safeAppendAudit({
@@ -1580,6 +1603,7 @@ app.post("/run-test", runTestLimiter, async (req, res) => {
       baseUrl,
       method: normalizedMethod,
     });
+    bumpDailyCounter("test", DAILY_TEST_LIMIT);
     const mode = chooseMode(normalizedMethod, endpointContext);
     const tests = testsByMode[mode] || testsByMode.body;
     const basePathParams = endpointContext?.pathParamValues || {};
