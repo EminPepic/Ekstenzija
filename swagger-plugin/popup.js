@@ -5,7 +5,6 @@ const RUN_TEST_URL = `${BACKEND_URL.replace(/\/+$/, "")}/run-test`;
 const REQUEST_API_KEY_URL = `${BACKEND_URL.replace(/\/+$/, "")}/request-api-key`;
 const HAS_KEY_STORAGE_KEY = "swaggerTesterHasKey";
 const CSRF_STORAGE_KEY = "swaggerTesterCsrfToken";
-const INVITE_STORAGE_KEY = "swaggerTesterInviteKey";
 const _lastRuns = {};
 const _maxRunsPerMinute = 2;
 const IS_LOCAL_BACKEND = /^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(BACKEND_URL);
@@ -31,6 +30,11 @@ let currentMethodFilter = "GET";
 let currentPathFilter = "";
 let lastSwaggerUrl = "";
 
+// cleanup legacy storage keys (invite key removed)
+try {
+  localStorage.removeItem("swaggerTesterInviteKey");
+} catch (e) {}
+
 if (apiKeyInput) {
   apiKeyInput.value = hasApiKey ? "********" : "";
   apiKeyInput.addEventListener("copy", (e) => e.preventDefault());
@@ -46,14 +50,7 @@ if (requestApiKeyBtn) {
     try {
       output.style.display = "block";
       output.innerHTML = 'Requesting API key<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
-      let inviteKey = String(localStorage.getItem(INVITE_STORAGE_KEY) || "").trim();
-      if (!inviteKey) {
-        inviteKey = String(prompt("Enter invite key (leave empty if not required):", "") || "").trim();
-        if (inviteKey) localStorage.setItem(INVITE_STORAGE_KEY, inviteKey);
-      }
-      const headers = {};
-      if (inviteKey) headers["x-invite-key"] = inviteKey;
-      const response = await fetch(REQUEST_API_KEY_URL, { method: "POST", credentials: "include", headers });
+      const response = await fetch(REQUEST_API_KEY_URL, { method: "POST", credentials: "include" });
       if (!response.ok) {
         const msg = `API key request failed (HTTP ${response.status})`;
         throw new Error(msg);

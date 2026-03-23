@@ -45,7 +45,6 @@ const ALLOWED_ORIGINS = String(process.env.ALLOWED_ORIGINS || "")
   .map((v) => v.trim())
   .filter(Boolean);
 const FOLLOW_REDIRECTS = String(process.env.FOLLOW_REDIRECTS || "false").toLowerCase() === "true";
-const INVITE_KEY = String(process.env.INVITE_KEY || "").trim();
 const BAN_WINDOW_MS = Number(process.env.BAN_WINDOW_MS || 10 * 60 * 1000);
 const BAN_THRESHOLD = Number(process.env.BAN_THRESHOLD || 3);
 const BAN_DURATION_MS = Number(process.env.BAN_DURATION_MS || 60 * 60 * 1000);
@@ -402,14 +401,6 @@ app.post("/request-api-key", tokenIssueLimiter, (req, res) => {
   if (isDailyLimitReached("token", DAILY_TOKEN_LIMIT)) {
     safeAppendAudit({ event: "request_api_key_denied", reason: "daily_token_limit", ip: req.ip });
     return res.status(429).json({ error: "Daily token limit reached." });
-  }
-  if (INVITE_KEY) {
-    const providedInvite =
-      String(req.get("x-invite-key") || req.body?.inviteKey || "").trim();
-    if (!providedInvite || providedInvite !== INVITE_KEY) {
-      safeAppendAudit({ event: "request_api_key_denied", reason: "invalid_invite", ip: req.ip });
-      return res.status(403).json({ error: "Invalid invite key." });
-    }
   }
   pruneExpiredTokens();
   bumpDailyCounter("token", DAILY_TOKEN_LIMIT);
