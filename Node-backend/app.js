@@ -6,6 +6,7 @@ const rateLimit = require("express-rate-limit");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const dns = require("dns").promises;
 
 const app = express();
 app.set("trust proxy", 1);
@@ -22,8 +23,15 @@ const TIME_MIN_DELAY_MS = Number(process.env.TIME_MIN_DELAY_MS || 4000);
 const DIFF_SIMILARITY_THRESHOLD = Number(process.env.DIFF_SIMILARITY_THRESHOLD || 0.15);
 const MAX_CHAINED_TESTS = Number(process.env.MAX_CHAINED_TESTS || 12);
 const AUDIT_LOG_PATH = process.env.AUDIT_LOG_PATH || path.join(__dirname, "audit.log");
+const AUDIT_LOG_MAX_BYTES = Number(process.env.AUDIT_LOG_MAX_BYTES || 5 * 1024 * 1024);
 const DEFAULT_ALLOWED_TARGET_HOSTS = ["localhost", "127.0.0.1", "::1", "swagger.io", "*.swagger.io"];
 const DEFAULT_ALLOWED_HOST_KEYWORDS = ["test", "staging", "dev", "sandbox", "swagger"];
+const DEFAULT_ALLOWED_ORIGINS = [
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+];
 const ALLOWED_TARGET_HOSTS = String(process.env.ALLOWED_TARGET_HOSTS || "")
   .split(",")
   .map((v) => v.trim())
@@ -32,6 +40,11 @@ const ALLOWED_HOST_KEYWORDS = String(process.env.ALLOWED_HOST_KEYWORDS || "")
   .split(",")
   .map((v) => v.trim())
   .filter(Boolean);
+const ALLOWED_ORIGINS = String(process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((v) => v.trim())
+  .filter(Boolean);
+const FOLLOW_REDIRECTS = String(process.env.FOLLOW_REDIRECTS || "false").toLowerCase() === "true";
 
 let activeTests = 0;
 const MAX_ACTIVE_TESTS = 2; 
@@ -51,7 +64,14 @@ const tokenIssueLimiter = rateLimit({
   message: { error: "Too many token requests. Please try again later." }
 });
 
-app.use(cors({ origin: true, credentials: true }));
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    if (isOriginAllowed(origin)) return cb(null, true);
+    return cb(new Error("Origin not allowed"));
+  },
+  credentials: true
+}));
 app.use(express.json({ limit: "100kb" }));
 
 function normalizeHost(hostname) {
@@ -83,6 +103,17 @@ function getAllowedHostKeywords() {
   return ALLOWED_HOST_KEYWORDS.length > 0 ? ALLOWED_HOST_KEYWORDS : DEFAULT_ALLOWED_HOST_KEYWORDS;
 }
 
+function getAllowedOrigins() {
+  return ALLOWED_ORIGINS.length > 0 ? ALLOWED_ORIGINS : DEFAULT_ALLOWED_ORIGINS;
+}
+
+function isOriginAllowed(origin) {
+  const o = String(origin || "").trim();
+  if (!o) return false;
+  if (o.startsWith("chrome-extension://")) return true;
+  return getAllowedOrigins().some((allowed) => String(allowed || "").trim() === o);
+}
+
 function hostContainsKeyword(hostname) {
   const host = normalizeHost(hostname);
   if (!host) return false;
@@ -106,11 +137,15 @@ function isSameDomain(hostname, swaggerHostname) {
   return host === base || host.endsWith(`.${base}`);
 }
 
-function enforceAllowedTarget(baseUrl, swaggerUrl) {
+async function enforceAllowedTarget(baseUrl, swaggerUrl) {
   try {
     const u = new URL(baseUrl);
     const host = u.hostname;
     if (!isLocalhostHost(host) && isPrivateNetworkHost(host)) return false;
+    if (!isLocalhostHost(host)) {
+      const privateResolved = await resolvesToPrivateIp(host);
+      if (privateResolved) return false;
+    }
     if (isHostAllowed(host, getAllowedTargetHosts())) return true;
     if (hostContainsKeyword(host)) return true;
     if (swaggerUrl) {
@@ -162,7 +197,8 @@ function generateMaskedKey() {
 function issueToken(key) {
   const token = crypto.randomBytes(24).toString("hex");
   const expiresAt = Date.now() + API_TOKEN_TTL_MS;
-  issuedTokens.set(token, { key, expiresAt });
+  const csrfToken = crypto.randomBytes(16).toString("hex");
+  issuedTokens.set(token, { key, expiresAt, csrfToken, ip: null, ua: null });
   return token;
 }
 
@@ -195,6 +231,15 @@ function isHttpsRequest(req) {
 
 function safeAppendAudit(entry) {
   try {
+    try {
+      if (fs.existsSync(AUDIT_LOG_PATH)) {
+        const stat = fs.statSync(AUDIT_LOG_PATH);
+        if (stat.size >= AUDIT_LOG_MAX_BYTES) {
+          const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+          fs.renameSync(AUDIT_LOG_PATH, `${AUDIT_LOG_PATH}.${stamp}`);
+        }
+      }
+    } catch (e) {}
     const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + "\n";
     fs.appendFile(AUDIT_LOG_PATH, line, () => {});
   } catch (e) {
@@ -234,19 +279,30 @@ function isPrivateNetworkHost(hostname) {
   return false;
 }
 
+async function resolvesToPrivateIp(hostname) {
+  try {
+    const results = await dns.lookup(hostname, { all: true, verbatim: true });
+    return results.some((r) => isPrivateNetworkHost(r.address));
+  } catch (e) {
+    return false;
+  }
+}
+
 async function fetchWithTimeout(url, options, timeoutMs = FETCH_TIMEOUT_MS) {
   if (typeof AbortController !== "undefined") {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await fetch(url, { ...(options || {}), signal: controller.signal });
+      const redirect = FOLLOW_REDIRECTS ? "follow" : "manual";
+      return await fetch(url, { ...(options || {}), signal: controller.signal, redirect });
     } finally {
       clearTimeout(id);
     }
   }
 
+  const redirect = FOLLOW_REDIRECTS ? "follow" : "manual";
   return await Promise.race([
-    fetch(url, options),
+    fetch(url, { ...(options || {}), redirect }),
     new Promise((_, reject) => setTimeout(() => reject(new Error("Fetch timeout")), timeoutMs)),
   ]);
 }
@@ -289,6 +345,12 @@ app.post("/request-api-key", tokenIssueLimiter, (req, res) => {
   }
   const token = issueToken(key);
   const reqIp = req.ip;
+  const reqUa = String(req.get("user-agent") || "").trim();
+  const tokenData = issuedTokens.get(token);
+  if (tokenData) {
+    tokenData.ip = reqIp;
+    tokenData.ua = reqUa;
+  }
   const masked = generateMaskedKey();
   const secureCookie = isHttpsRequest(req);
   res.cookie("api_token", token, {
@@ -301,10 +363,11 @@ app.post("/request-api-key", tokenIssueLimiter, (req, res) => {
   safeAppendAudit({
     event: "token_issued",
     ip: reqIp,
+    ua: reqUa,
     masked,
     ttlMs: API_TOKEN_TTL_MS,
   });
-  return res.json({ masked, expiresInMs: API_TOKEN_TTL_MS });
+  return res.json({ masked, expiresInMs: API_TOKEN_TTL_MS, csrfToken: tokenData?.csrfToken || "" });
 });
 
 const testsByMode = {
@@ -1405,7 +1468,7 @@ app.post("/run-test", runTestLimiter, async (req, res) => {
     if (swaggerUrl && !isValidUrl(swaggerUrl)) {
       return res.status(400).json({ error: "Invalid swaggerUrl" });
     }
-    if (!enforceAllowedTarget(baseUrl, swaggerUrl)) {
+    if (!await enforceAllowedTarget(baseUrl, swaggerUrl)) {
       safeAppendAudit({
         event: "run_test_denied",
         reason: "target_not_allowed",
@@ -1425,6 +1488,37 @@ app.post("/run-test", runTestLimiter, async (req, res) => {
     if (!tokenData) {
       safeAppendAudit({ event: "run_test_denied", reason: "invalid_token", ip: req.ip, baseUrl });
       return res.status(403).json({ error: "Invalid or expired API key." });
+    }
+    if (tokenData.ip && tokenData.ip !== req.ip) {
+      safeAppendAudit({
+        event: "run_test_denied",
+        reason: "ip_mismatch",
+        ip: req.ip,
+        tokenIp: tokenData.ip,
+        baseUrl,
+      });
+      return res.status(403).json({ error: "API key not valid for this IP." });
+    }
+    const currentUa = String(req.get("user-agent") || "").trim();
+    if (tokenData.ua && currentUa && tokenData.ua !== currentUa) {
+      safeAppendAudit({
+        event: "run_test_denied",
+        reason: "ua_mismatch",
+        ip: req.ip,
+        baseUrl,
+        ua: currentUa,
+      });
+      return res.status(403).json({ error: "API key not valid for this client." });
+    }
+    const csrfHeader = String(req.get("x-csrf-token") || "").trim();
+    if (!csrfHeader || csrfHeader !== tokenData.csrfToken) {
+      safeAppendAudit({
+        event: "run_test_denied",
+        reason: "csrf_mismatch",
+        ip: req.ip,
+        baseUrl,
+      });
+      return res.status(403).json({ error: "CSRF validation failed." });
     }
     const normalizedMethod = method.toUpperCase();
     safeAppendAudit({

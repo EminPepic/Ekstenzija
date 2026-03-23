@@ -24,6 +24,7 @@ const downloadBtn = document.getElementById("downloadBtn");
 let isRunningTest = false;
 let lastResultForDownload = null;
 let hasApiKey = String(localStorage.getItem(HAS_KEY_STORAGE_KEY) || "") === "1";
+let csrfToken = "";
 let currentMethodFilter = "GET";
 let currentPathFilter = "";
 let lastSwaggerUrl = "";
@@ -50,6 +51,7 @@ if (requestApiKeyBtn) {
       }
       const data = await response.json();
       const masked = String(data?.masked || "").trim();
+      csrfToken = String(data?.csrfToken || "").trim();
       if (!masked) {
         throw new Error("API key response was invalid.");
       }
@@ -759,6 +761,7 @@ async function runTest(path, method) {
 
   try {
     const headers = { "Content-Type": "application/json" };
+    if (csrfToken) headers["x-csrf-token"] = csrfToken;
     const options = { connections: DEFAULT_CONCURRENCY, duration: DEFAULT_DURATION };
 
     async function sendRunTest() {
