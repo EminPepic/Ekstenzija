@@ -5,6 +5,7 @@ const RUN_TEST_URL = `${BACKEND_URL.replace(/\/+$/, "")}/run-test`;
 const REQUEST_API_KEY_URL = `${BACKEND_URL.replace(/\/+$/, "")}/request-api-key`;
 const HAS_KEY_STORAGE_KEY = "swaggerTesterHasKey";
 const CSRF_STORAGE_KEY = "swaggerTesterCsrfToken";
+const INVITE_STORAGE_KEY = "swaggerTesterInviteKey";
 const _lastRuns = {};
 const _maxRunsPerMinute = 2;
 const IS_LOCAL_BACKEND = /^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(BACKEND_URL);
@@ -45,7 +46,14 @@ if (requestApiKeyBtn) {
     try {
       output.style.display = "block";
       output.innerHTML = 'Requesting API key<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
-      const response = await fetch(REQUEST_API_KEY_URL, { method: "POST", credentials: "include" });
+      let inviteKey = String(localStorage.getItem(INVITE_STORAGE_KEY) || "").trim();
+      if (!inviteKey) {
+        inviteKey = String(prompt("Enter invite key (leave empty if not required):", "") || "").trim();
+        if (inviteKey) localStorage.setItem(INVITE_STORAGE_KEY, inviteKey);
+      }
+      const headers = {};
+      if (inviteKey) headers["x-invite-key"] = inviteKey;
+      const response = await fetch(REQUEST_API_KEY_URL, { method: "POST", credentials: "include", headers });
       if (!response.ok) {
         const msg = `API key request failed (HTTP ${response.status})`;
         throw new Error(msg);
@@ -62,7 +70,7 @@ if (requestApiKeyBtn) {
       hasApiKey = true;
       localStorage.setItem(HAS_KEY_STORAGE_KEY, "1");
       localStorage.setItem(CSRF_STORAGE_KEY, csrfToken);
-      if (apiKeyInput) apiKeyInput.value = "********";
+      if (apiKeyInput) apiKeyInput.value = masked || "********";
       output.innerHTML = "API key is ready. You can start tests.";
     } catch (err) {
       hasApiKey = false;
@@ -808,12 +816,15 @@ async function runTest(path, method) {
         if (errData?.error) backendMessage = errData.error;
       } catch (e) {}
       if (response.status === 403) {
-        hasApiKey = false;
-        localStorage.removeItem(HAS_KEY_STORAGE_KEY);
-        localStorage.removeItem(CSRF_STORAGE_KEY);
-        csrfToken = "";
-        if (apiKeyInput) apiKeyInput.value = "";
-        backendMessage = "API key expired. Please request a new one.";
+        const lower = String(backendMessage || "").toLowerCase();
+        if (lower.includes("invalid or expired") || lower.includes("csrf")) {
+          hasApiKey = false;
+          localStorage.removeItem(HAS_KEY_STORAGE_KEY);
+          localStorage.removeItem(CSRF_STORAGE_KEY);
+          csrfToken = "";
+          if (apiKeyInput) apiKeyInput.value = "";
+          backendMessage = "API key expired. Please request a new one.";
+        }
       }
       throw new Error(backendMessage);
     }
