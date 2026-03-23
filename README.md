@@ -27,13 +27,11 @@ The backend issues a short-lived token and the UI shows a masked value only.
 
 # Operations (access & revocation)
 
-Access is granted by adding keys to the backend configuration:
-* add one or more keys to `CLIENT_API_KEYS`
-* the backend issues temporary tokens on request
+Access is granted by setting the backend API_KEY value (comma-separated list).
+The backend issues temporary tokens via an HttpOnly cookie (not readable by JS).
 
 To revoke access:
-* rotate/remove keys from `CLIENT_API_KEYS`
-* or rotate `API_KEY` to invalidate all existing access (if enabled)
+* rotate API_KEY to invalidate all existing access
 
 # How the app works
 
@@ -62,15 +60,15 @@ To revoke access:
 
 Backend environment variables:
 
-* `API_KEY` – optional server-side key (not exposed to clients)
-* `API_KEY_HEADER` – header name for the key (default: `x-api-key`)
-* `ALLOWED_EMAILS` – comma-separated allowlist of emails (required for access)
-* `FETCH_TIMEOUT_MS` – request timeout (default: 30000)
-* `TIME_DELAY_THRESHOLD_MS` – extra delay threshold for time-based checks (default: 2500)
-* `TIME_MIN_DELAY_MS` – minimum delay threshold for time-based checks (default: 4000)
-* `DIFF_SIMILARITY_THRESHOLD` – similarity threshold for valid vs invalid comparison (default: 0.15)
-* `MAX_CHAINED_TESTS` – number of chained payload tests (default: 12)
-   
+* `API_KEY` - comma-separated list of server-side keys (not exposed to clients)
+* `API_KEY_HEADER` - header name for the key (default: `x-api-key`)
+* `API_TOKEN_TTL_MS` - token lifetime in ms (default: 15m)
+* `FETCH_TIMEOUT_MS` - request timeout (default: 30000)
+* `TIME_DELAY_THRESHOLD_MS` - extra delay threshold for time-based checks (default: 2500)
+* `TIME_MIN_DELAY_MS` - minimum delay threshold for time-based checks (default: 4000)
+* `DIFF_SIMILARITY_THRESHOLD` - similarity threshold for valid vs invalid comparison (default: 0.15)
+* `MAX_CHAINED_TESTS` - number of chained payload tests (default: 12)
+
 # Security tests
 
 Common API vulnerabilities are tested:
@@ -146,6 +144,10 @@ Running tests:
 POST /run-test
 ```
 *automatic API security and performance testing*.
+
+
+
+
 
 
 
