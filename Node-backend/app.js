@@ -4,6 +4,8 @@ const fetch = require("node-fetch");
 const autocannon = require("autocannon");
 const rateLimit = require("express-rate-limit");
 const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -13,28 +15,113 @@ const API_KEYS = String(process.env.API_KEY || "")
   .map((key) => key.trim())
   .filter(Boolean);
 const API_KEY_HEADER = String(process.env.API_KEY_HEADER || "x-api-key").trim();
-const API_TOKEN_TTL_MS = Number(process.env.API_TOKEN_TTL_MS || 15 * 60 * 1000);
+const API_TOKEN_TTL_MS = Number(process.env.API_TOKEN_TTL_MS || 10 * 60 * 1000);
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 30000);
 const TIME_DELAY_THRESHOLD_MS = Number(process.env.TIME_DELAY_THRESHOLD_MS || 2500);
 const TIME_MIN_DELAY_MS = Number(process.env.TIME_MIN_DELAY_MS || 4000);
 const DIFF_SIMILARITY_THRESHOLD = Number(process.env.DIFF_SIMILARITY_THRESHOLD || 0.15);
 const MAX_CHAINED_TESTS = Number(process.env.MAX_CHAINED_TESTS || 12);
+const AUDIT_LOG_PATH = process.env.AUDIT_LOG_PATH || path.join(__dirname, "audit.log");
+const DEFAULT_ALLOWED_TARGET_HOSTS = ["localhost", "127.0.0.1", "::1", "swagger.io", "*.swagger.io"];
+const DEFAULT_ALLOWED_HOST_KEYWORDS = ["test", "staging", "dev", "sandbox", "swagger"];
+const ALLOWED_TARGET_HOSTS = String(process.env.ALLOWED_TARGET_HOSTS || "")
+  .split(",")
+  .map((v) => v.trim())
+  .filter(Boolean);
+const ALLOWED_HOST_KEYWORDS = String(process.env.ALLOWED_HOST_KEYWORDS || "")
+  .split(",")
+  .map((v) => v.trim())
+  .filter(Boolean);
 
 let activeTests = 0;
 const MAX_ACTIVE_TESTS = 2; 
 const KEY_WINDOW_MS = 60 * 1000;
-const MAX_TESTS_PER_KEY = Number(process.env.MAX_TESTS_PER_KEY || 10);
+const MAX_TESTS_PER_KEY = Number(process.env.MAX_TESTS_PER_KEY || 5);
 const keyHits = new Map();
 const issuedTokens = new Map();
 
 const runTestLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 2,              // max 2 tests per minute per IP
+  max: 1,              // max 1 test per minute per IP
   message: { error: "Too many requests. Please try again later." }
+});
+const tokenIssueLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  message: { error: "Too many token requests. Please try again later." }
 });
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: "100kb" }));
+
+function normalizeHost(hostname) {
+  return String(hostname || "").trim().toLowerCase().replace(/\.$/, "");
+}
+
+function isHostAllowed(hostname, allowList) {
+  const host = normalizeHost(hostname);
+  if (!host) return false;
+  const list = Array.isArray(allowList) && allowList.length > 0 ? allowList : [];
+  for (const entry of list) {
+    const rule = normalizeHost(entry);
+    if (!rule) continue;
+    if (rule.startsWith("*.")) {
+      const base = rule.slice(2);
+      if (host.endsWith(`.${base}`)) return true;
+    } else if (host === rule) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getAllowedTargetHosts() {
+  return ALLOWED_TARGET_HOSTS.length > 0 ? ALLOWED_TARGET_HOSTS : DEFAULT_ALLOWED_TARGET_HOSTS;
+}
+
+function getAllowedHostKeywords() {
+  return ALLOWED_HOST_KEYWORDS.length > 0 ? ALLOWED_HOST_KEYWORDS : DEFAULT_ALLOWED_HOST_KEYWORDS;
+}
+
+function hostContainsKeyword(hostname) {
+  const host = normalizeHost(hostname);
+  if (!host) return false;
+  return getAllowedHostKeywords().some((kw) => kw && host.includes(String(kw).toLowerCase()));
+}
+
+function getBaseDomain(hostname) {
+  const host = normalizeHost(hostname);
+  if (!host) return "";
+  const parts = host.split(".").filter(Boolean);
+  if (parts.length < 2) return host;
+  return `${parts[parts.length - 2]}.${parts[parts.length - 1]}`;
+}
+
+function isSameDomain(hostname, swaggerHostname) {
+  const host = normalizeHost(hostname);
+  const swaggerHost = normalizeHost(swaggerHostname);
+  if (!host || !swaggerHost) return false;
+  if (host === swaggerHost || host.endsWith(`.${swaggerHost}`)) return true;
+  const base = getBaseDomain(swaggerHost);
+  return host === base || host.endsWith(`.${base}`);
+}
+
+function enforceAllowedTarget(baseUrl, swaggerUrl) {
+  try {
+    const u = new URL(baseUrl);
+    const host = u.hostname;
+    if (!isLocalhostHost(host) && isPrivateNetworkHost(host)) return false;
+    if (isHostAllowed(host, getAllowedTargetHosts())) return true;
+    if (hostContainsKeyword(host)) return true;
+    if (swaggerUrl) {
+      const s = new URL(swaggerUrl);
+      if (isSameDomain(host, s.hostname)) return true;
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
 
 function requireApiKeyIfConfigured(req, res, next) {
   if (API_KEYS.length === 0) return next();
@@ -75,7 +162,7 @@ function generateMaskedKey() {
 function issueToken(key) {
   const token = crypto.randomBytes(24).toString("hex");
   const expiresAt = Date.now() + API_TOKEN_TTL_MS;
-  issuedTokens.set(token, { key, expiresAt });
+  issuedTokens.set(token, { key, expiresAt, ip: null });
   return token;
 }
 
@@ -104,6 +191,47 @@ function isHttpsRequest(req) {
   if (req.secure) return true;
   const proto = String(req.get("x-forwarded-proto") || "").toLowerCase();
   return proto === "https";
+}
+
+function safeAppendAudit(entry) {
+  try {
+    const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + "\n";
+    fs.appendFile(AUDIT_LOG_PATH, line, () => {});
+  } catch (e) {
+    // best-effort logging only
+  }
+}
+
+function isIpv4(hostname) {
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(String(hostname || "").trim());
+}
+
+function isIpv6(hostname) {
+  return String(hostname || "").includes(":");
+}
+
+function isPrivateIpv4(hostname) {
+  if (!isIpv4(hostname)) return false;
+  const parts = hostname.split(".").map((v) => Number(v));
+  if (parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return false;
+  if (parts[0] === 10) return true;
+  if (parts[0] === 127) return true;
+  if (parts[0] === 192 && parts[1] === 168) return true;
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+  return false;
+}
+
+function isLocalhostHost(hostname) {
+  const host = normalizeHost(hostname);
+  return host === "localhost" || host === "127.0.0.1" || host === "::1";
+}
+
+function isPrivateNetworkHost(hostname) {
+  const host = normalizeHost(hostname);
+  if (!host) return false;
+  if (isIpv4(host)) return isPrivateIpv4(host);
+  if (isIpv6(host)) return host === "::1";
+  return false;
 }
 
 async function fetchWithTimeout(url, options, timeoutMs = FETCH_TIMEOUT_MS) {
@@ -153,13 +281,22 @@ function isValidUrl(s) {
 
 app.get("/health", (req, res) => res.json({ ok: true }));
 
-app.post("/request-api-key", (req, res) => {
+app.post("/request-api-key", tokenIssueLimiter, (req, res) => {
   pruneExpiredTokens();
   const key = pickApiKey();
   if (!key) {
     return res.status(503).json({ error: "API keys are not configured." });
   }
   const token = issueToken(key);
+  const reqIp = req.ip;
+  const reqUa = String(req.get("user-agent") || "").trim();
+  const reqOrigin = String(req.get("origin") || "").trim();
+  const tokenData = issuedTokens.get(token);
+  if (tokenData) {
+    tokenData.ip = reqIp;
+    tokenData.ua = reqUa;
+    tokenData.origin = reqOrigin;
+  }
   const masked = generateMaskedKey();
   const secureCookie = isHttpsRequest(req);
   res.cookie("api_token", token, {
@@ -168,6 +305,14 @@ app.post("/request-api-key", (req, res) => {
     sameSite: secureCookie ? "None" : "Lax",
     maxAge: API_TOKEN_TTL_MS,
     path: "/",
+  });
+  safeAppendAudit({
+    event: "token_issued",
+    ip: reqIp,
+    ua: reqUa,
+    origin: reqOrigin,
+    masked,
+    ttlMs: API_TOKEN_TTL_MS,
   });
   return res.json({ masked, expiresInMs: API_TOKEN_TTL_MS });
 });
@@ -1263,9 +1408,24 @@ app.post("/run-test", runTestLimiter, async (req, res) => {
     const method = sanitizeString(raw.method || "", 10).toUpperCase();
     const apiToken = String(req.get("x-api-token") || raw.apiKeyToken || getCookie(req, "api_token") || "").trim();
     const endpointContext = sanitizeObject(raw.endpointContext || {});
+    const swaggerUrl = sanitizeString(raw.swaggerUrl || "", 2048);
 
     if (!baseUrl || !path || !method) return res.status(400).json({ error: "Missing parameters" });
     if (!isValidUrl(baseUrl)) return res.status(400).json({ error: "Invalid baseUrl" });
+    if (swaggerUrl && !isValidUrl(swaggerUrl)) {
+      return res.status(400).json({ error: "Invalid swaggerUrl" });
+    }
+    if (!enforceAllowedTarget(baseUrl, swaggerUrl)) {
+      safeAppendAudit({
+        event: "run_test_denied",
+        reason: "target_not_allowed",
+        ip: req.ip,
+        baseUrl,
+        swaggerUrl,
+      });
+      console.warn(`[audit] target_not_allowed ip=${req.ip} baseUrl=${baseUrl}`);
+      return res.status(403).json({ error: "Target host not allowed." });
+    }
     if (!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].includes(method)) return res.status(400).json({ error: "Invalid method" });
     if (!apiToken) {
       return res.status(403).json({ error: "Missing API key." });
@@ -1273,9 +1433,48 @@ app.post("/run-test", runTestLimiter, async (req, res) => {
     pruneExpiredTokens();
     const tokenData = issuedTokens.get(apiToken);
     if (!tokenData) {
+      safeAppendAudit({ event: "run_test_denied", reason: "invalid_token", ip: req.ip, baseUrl });
       return res.status(403).json({ error: "Invalid or expired API key." });
     }
+    if (tokenData.ip && tokenData.ip !== req.ip) {
+      safeAppendAudit({
+        event: "run_test_denied",
+        reason: "ip_mismatch",
+        ip: req.ip,
+        tokenIp: tokenData.ip,
+        baseUrl,
+      });
+      return res.status(403).json({ error: "API key not valid for this IP." });
+    }
+    const currentUa = String(req.get("user-agent") || "").trim();
+    const currentOrigin = String(req.get("origin") || "").trim();
+    if (tokenData.ua && currentUa && tokenData.ua !== currentUa) {
+      safeAppendAudit({
+        event: "run_test_denied",
+        reason: "ua_mismatch",
+        ip: req.ip,
+        baseUrl,
+        ua: currentUa,
+      });
+      return res.status(403).json({ error: "API key not valid for this client." });
+    }
+    if (tokenData.origin && currentOrigin && tokenData.origin !== currentOrigin) {
+      safeAppendAudit({
+        event: "run_test_denied",
+        reason: "origin_mismatch",
+        ip: req.ip,
+        baseUrl,
+        origin: currentOrigin,
+      });
+      return res.status(403).json({ error: "API key not valid for this origin." });
+    }
     const normalizedMethod = method.toUpperCase();
+    safeAppendAudit({
+      event: "run_test_started",
+      ip: req.ip,
+      baseUrl,
+      method: normalizedMethod,
+    });
     const mode = chooseMode(normalizedMethod, endpointContext);
     const tests = testsByMode[mode] || testsByMode.body;
     const basePathParams = endpointContext?.pathParamValues || {};
