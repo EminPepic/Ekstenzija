@@ -3,6 +3,7 @@
 const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "https://swagger-tester-backend.onrender.com").trim();
 const RUN_TEST_URL = `${BACKEND_URL.replace(/\/+$/, "")}/run-test`;
 const REQUEST_API_KEY_URL = `${BACKEND_URL.replace(/\/+$/, "")}/request-api-key`;
+const HAS_KEY_STORAGE_KEY = "swaggerTesterHasKey";
 const _lastRuns = {};
 const _maxRunsPerMinute = 2;
 const IS_LOCAL_BACKEND = /^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(BACKEND_URL);
@@ -22,13 +23,13 @@ const backBtn = document.getElementById("backBtn");
 const downloadBtn = document.getElementById("downloadBtn");
 let isRunningTest = false;
 let lastResultForDownload = null;
-let hasApiKey = false;
+let hasApiKey = String(localStorage.getItem(HAS_KEY_STORAGE_KEY) || "") === "1";
 let currentMethodFilter = "GET";
 let currentPathFilter = "";
 let lastSwaggerUrl = "";
 
 if (apiKeyInput) {
-  apiKeyInput.value = "";
+  apiKeyInput.value = hasApiKey ? "********" : "";
   apiKeyInput.addEventListener("copy", (e) => e.preventDefault());
   apiKeyInput.addEventListener("cut", (e) => e.preventDefault());
   apiKeyInput.addEventListener("paste", (e) => e.preventDefault());
@@ -53,9 +54,12 @@ if (requestApiKeyBtn) {
         throw new Error("API key response was invalid.");
       }
       hasApiKey = true;
+      localStorage.setItem(HAS_KEY_STORAGE_KEY, "1");
       if (apiKeyInput) apiKeyInput.value = "********";
       output.innerHTML = "API key is ready. You can start tests.";
     } catch (err) {
+      hasApiKey = false;
+      localStorage.removeItem(HAS_KEY_STORAGE_KEY);
       output.innerHTML = `API key request failed: ${escapeHtml(err?.message || "Unknown error")}`;
     }
   });
@@ -789,6 +793,12 @@ async function runTest(path, method) {
         const errData = await response.json();
         if (errData?.error) backendMessage = errData.error;
       } catch (e) {}
+      if (response.status === 403) {
+        hasApiKey = false;
+        localStorage.removeItem(HAS_KEY_STORAGE_KEY);
+        if (apiKeyInput) apiKeyInput.value = "";
+        backendMessage = "API key expired. Please request a new one.";
+      }
       throw new Error(backendMessage);
     }
 

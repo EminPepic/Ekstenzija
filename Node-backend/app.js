@@ -100,6 +100,12 @@ function getCookie(req, name) {
   return "";
 }
 
+function isHttpsRequest(req) {
+  if (req.secure) return true;
+  const proto = String(req.get("x-forwarded-proto") || "").toLowerCase();
+  return proto === "https";
+}
+
 async function fetchWithTimeout(url, options, timeoutMs = FETCH_TIMEOUT_MS) {
   if (typeof AbortController !== "undefined") {
     const controller = new AbortController();
@@ -155,11 +161,13 @@ app.post("/request-api-key", (req, res) => {
   }
   const token = issueToken(key);
   const masked = generateMaskedKey();
+  const secureCookie = isHttpsRequest(req);
   res.cookie("api_token", token, {
     httpOnly: true,
-    secure: true,
-    sameSite: "None",
+    secure: secureCookie,
+    sameSite: secureCookie ? "None" : "Lax",
     maxAge: API_TOKEN_TTL_MS,
+    path: "/",
   });
   return res.json({ masked, expiresInMs: API_TOKEN_TTL_MS });
 });
