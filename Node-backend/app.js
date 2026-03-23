@@ -24,7 +24,23 @@ const DIFF_SIMILARITY_THRESHOLD = Number(process.env.DIFF_SIMILARITY_THRESHOLD |
 const MAX_CHAINED_TESTS = Number(process.env.MAX_CHAINED_TESTS || 12);
 const AUDIT_LOG_PATH = process.env.AUDIT_LOG_PATH || path.join(__dirname, "audit.log");
 const AUDIT_LOG_MAX_BYTES = Number(process.env.AUDIT_LOG_MAX_BYTES || 5 * 1024 * 1024);
-const DEFAULT_ALLOWED_TARGET_HOSTS = ["localhost", "127.0.0.1", "::1", "swagger.io", "*.swagger.io"];
+const DEFAULT_ALLOWED_TARGET_HOSTS = [
+  "localhost",
+  "127.0.0.1",
+  "::1",
+  "swagger.io",
+  "*.swagger.io",
+  "petstore.swagger.io",
+  "httpbin.org",
+  "*.httpbin.org",
+  "postman-echo.com",
+  "*.postman-echo.com",
+  "reqres.in",
+  "jsonplaceholder.typicode.com",
+  "*.mockapi.io",
+  "*.mockbin.io",
+  "webhook.site"
+];
 const DEFAULT_ALLOWED_HOST_KEYWORDS = ["test", "staging", "dev", "sandbox", "swagger"];
 const DEFAULT_ALLOWED_ORIGINS = [
   "http://localhost:3000",
@@ -32,6 +48,7 @@ const DEFAULT_ALLOWED_ORIGINS = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
 ];
+const STRICT_ALLOWLIST = String(process.env.STRICT_ALLOWLIST || "true").toLowerCase() === "true";
 const ALLOWED_TARGET_HOSTS = String(process.env.ALLOWED_TARGET_HOSTS || "")
   .split(",")
   .map((v) => v.trim())
@@ -155,10 +172,12 @@ async function enforceAllowedTarget(baseUrl, swaggerUrl) {
       if (privateResolved) return false;
     }
     if (isHostAllowed(host, getAllowedTargetHosts())) return true;
-    if (hostContainsKeyword(host)) return true;
-    if (swaggerUrl) {
-      const s = new URL(swaggerUrl);
-      if (isSameDomain(host, s.hostname)) return true;
+    if (!STRICT_ALLOWLIST) {
+      if (hostContainsKeyword(host)) return true;
+      if (swaggerUrl) {
+        const s = new URL(swaggerUrl);
+        if (isSameDomain(host, s.hostname)) return true;
+      }
     }
     return false;
   } catch (e) {
