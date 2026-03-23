@@ -4,6 +4,7 @@ const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "https:/
 const RUN_TEST_URL = `${BACKEND_URL.replace(/\/+$/, "")}/run-test`;
 const REQUEST_API_KEY_URL = `${BACKEND_URL.replace(/\/+$/, "")}/request-api-key`;
 const HAS_KEY_STORAGE_KEY = "swaggerTesterHasKey";
+const CSRF_STORAGE_KEY = "swaggerTesterCsrfToken";
 const _lastRuns = {};
 const _maxRunsPerMinute = 2;
 const IS_LOCAL_BACKEND = /^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(BACKEND_URL);
@@ -24,7 +25,7 @@ const downloadBtn = document.getElementById("downloadBtn");
 let isRunningTest = false;
 let lastResultForDownload = null;
 let hasApiKey = String(localStorage.getItem(HAS_KEY_STORAGE_KEY) || "") === "1";
-let csrfToken = "";
+let csrfToken = String(localStorage.getItem(CSRF_STORAGE_KEY) || "");
 let currentMethodFilter = "GET";
 let currentPathFilter = "";
 let lastSwaggerUrl = "";
@@ -55,13 +56,19 @@ if (requestApiKeyBtn) {
       if (!masked) {
         throw new Error("API key response was invalid.");
       }
+      if (!csrfToken) {
+        throw new Error("CSRF token missing. Please try again.");
+      }
       hasApiKey = true;
       localStorage.setItem(HAS_KEY_STORAGE_KEY, "1");
+      localStorage.setItem(CSRF_STORAGE_KEY, csrfToken);
       if (apiKeyInput) apiKeyInput.value = "********";
       output.innerHTML = "API key is ready. You can start tests.";
     } catch (err) {
       hasApiKey = false;
       localStorage.removeItem(HAS_KEY_STORAGE_KEY);
+      localStorage.removeItem(CSRF_STORAGE_KEY);
+      csrfToken = "";
       output.innerHTML = `API key request failed: ${escapeHtml(err?.message || "Unknown error")}`;
     }
   });
@@ -737,6 +744,10 @@ async function runTest(path, method) {
     output.innerHTML = "Request an API key before starting the test.";
     return;
   }
+  if (!csrfToken) {
+    output.innerHTML = "API key is missing or expired. Please request a new one.";
+    return;
+  }
 
   // Rate-limit: allow a small number of runs per minute per endpoint
   try {
@@ -799,6 +810,8 @@ async function runTest(path, method) {
       if (response.status === 403) {
         hasApiKey = false;
         localStorage.removeItem(HAS_KEY_STORAGE_KEY);
+        localStorage.removeItem(CSRF_STORAGE_KEY);
+        csrfToken = "";
         if (apiKeyInput) apiKeyInput.value = "";
         backendMessage = "API key expired. Please request a new one.";
       }

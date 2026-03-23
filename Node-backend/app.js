@@ -17,7 +17,7 @@ const API_KEYS = String(process.env.API_KEY || "")
   .filter(Boolean);
 const API_KEY_HEADER = String(process.env.API_KEY_HEADER || "x-api-key").trim();
 const API_TOKEN_TTL_MS = Number(process.env.API_TOKEN_TTL_MS || 10 * 60 * 1000);
-const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 30000);
+const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 15000);
 const TIME_DELAY_THRESHOLD_MS = Number(process.env.TIME_DELAY_THRESHOLD_MS || 2500);
 const TIME_MIN_DELAY_MS = Number(process.env.TIME_MIN_DELAY_MS || 4000);
 const DIFF_SIMILARITY_THRESHOLD = Number(process.env.DIFF_SIMILARITY_THRESHOLD || 0.15);
@@ -45,6 +45,9 @@ const ALLOWED_ORIGINS = String(process.env.ALLOWED_ORIGINS || "")
   .map((v) => v.trim())
   .filter(Boolean);
 const FOLLOW_REDIRECTS = String(process.env.FOLLOW_REDIRECTS || "false").toLowerCase() === "true";
+const BAN_WINDOW_MS = Number(process.env.BAN_WINDOW_MS || 10 * 60 * 1000);
+const BAN_THRESHOLD = Number(process.env.BAN_THRESHOLD || 5);
+const BAN_DURATION_MS = Number(process.env.BAN_DURATION_MS || 60 * 60 * 1000);
 
 let activeTests = 0;
 const MAX_ACTIVE_TESTS = 2; 
@@ -52,6 +55,8 @@ const KEY_WINDOW_MS = 60 * 1000;
 const MAX_TESTS_PER_KEY = Number(process.env.MAX_TESTS_PER_KEY || 5);
 const keyHits = new Map();
 const issuedTokens = new Map();
+const deniedHits = new Map();
+const bannedIps = new Map();
 
 const runTestLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
@@ -247,6 +252,31 @@ function safeAppendAudit(entry) {
   }
 }
 
+function noteDenied(ip, reason, meta = {}) {
+  if (!ip) return;
+  const now = Date.now();
+  const bucket = deniedHits.get(ip) || [];
+  const fresh = bucket.filter((ts) => now - ts < BAN_WINDOW_MS);
+  fresh.push(now);
+  deniedHits.set(ip, fresh);
+  if (fresh.length >= BAN_THRESHOLD) {
+    const until = now + BAN_DURATION_MS;
+    bannedIps.set(ip, until);
+    safeAppendAudit({ event: "ip_banned", ip, reason: `threshold:${reason}`, until, ...meta });
+  }
+}
+
+function isIpBanned(ip) {
+  if (!ip) return false;
+  const until = bannedIps.get(ip);
+  if (!until) return false;
+  if (until <= Date.now()) {
+    bannedIps.delete(ip);
+    return false;
+  }
+  return true;
+}
+
 function isIpv4(hostname) {
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(String(hostname || "").trim());
 }
@@ -338,6 +368,10 @@ function isValidUrl(s) {
 app.get("/health", (req, res) => res.json({ ok: true }));
 
 app.post("/request-api-key", tokenIssueLimiter, (req, res) => {
+  if (isIpBanned(req.ip)) {
+    safeAppendAudit({ event: "request_api_key_denied", reason: "ip_banned", ip: req.ip });
+    return res.status(403).json({ error: "Access temporarily blocked." });
+  }
   pruneExpiredTokens();
   const key = pickApiKey();
   if (!key) {
@@ -1446,6 +1480,10 @@ function generateAnalysisSummary({ summary, performance, findings }) {
 }
 
 app.post("/run-test", runTestLimiter, async (req, res) => {
+  if (isIpBanned(req.ip)) {
+    safeAppendAudit({ event: "run_test_denied", reason: "ip_banned", ip: req.ip });
+    return res.status(403).json({ error: "Access temporarily blocked." });
+  }
   if (activeTests >= MAX_ACTIVE_TESTS) {
     return res.status(429).json({
       error: "Too many active tests. Please try again later."
@@ -1476,17 +1514,20 @@ app.post("/run-test", runTestLimiter, async (req, res) => {
         baseUrl,
         swaggerUrl,
       });
+      noteDenied(req.ip, "target_not_allowed", { baseUrl });
       console.warn(`[audit] target_not_allowed ip=${req.ip} baseUrl=${baseUrl}`);
       return res.status(403).json({ error: "Target host not allowed." });
     }
     if (!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].includes(method)) return res.status(400).json({ error: "Invalid method" });
     if (!apiToken) {
+      noteDenied(req.ip, "missing_token");
       return res.status(403).json({ error: "Missing API key." });
     }
     pruneExpiredTokens();
     const tokenData = issuedTokens.get(apiToken);
     if (!tokenData) {
       safeAppendAudit({ event: "run_test_denied", reason: "invalid_token", ip: req.ip, baseUrl });
+      noteDenied(req.ip, "invalid_token", { baseUrl });
       return res.status(403).json({ error: "Invalid or expired API key." });
     }
     if (tokenData.ip && tokenData.ip !== req.ip) {
@@ -1497,6 +1538,7 @@ app.post("/run-test", runTestLimiter, async (req, res) => {
         tokenIp: tokenData.ip,
         baseUrl,
       });
+      noteDenied(req.ip, "ip_mismatch", { baseUrl });
       return res.status(403).json({ error: "API key not valid for this IP." });
     }
     const currentUa = String(req.get("user-agent") || "").trim();
@@ -1508,6 +1550,7 @@ app.post("/run-test", runTestLimiter, async (req, res) => {
         baseUrl,
         ua: currentUa,
       });
+      noteDenied(req.ip, "ua_mismatch", { baseUrl });
       return res.status(403).json({ error: "API key not valid for this client." });
     }
     const csrfHeader = String(req.get("x-csrf-token") || "").trim();
@@ -1518,6 +1561,7 @@ app.post("/run-test", runTestLimiter, async (req, res) => {
         ip: req.ip,
         baseUrl,
       });
+      noteDenied(req.ip, "csrf_mismatch", { baseUrl });
       return res.status(403).json({ error: "CSRF validation failed." });
     }
     const normalizedMethod = method.toUpperCase();
