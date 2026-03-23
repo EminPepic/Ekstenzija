@@ -47,9 +47,9 @@ const ALLOWED_ORIGINS = String(process.env.ALLOWED_ORIGINS || "")
 const FOLLOW_REDIRECTS = String(process.env.FOLLOW_REDIRECTS || "false").toLowerCase() === "true";
 const INVITE_KEY = String(process.env.INVITE_KEY || "").trim();
 const BAN_WINDOW_MS = Number(process.env.BAN_WINDOW_MS || 10 * 60 * 1000);
-const BAN_THRESHOLD = Number(process.env.BAN_THRESHOLD || 5);
+const BAN_THRESHOLD = Number(process.env.BAN_THRESHOLD || 3);
 const BAN_DURATION_MS = Number(process.env.BAN_DURATION_MS || 60 * 60 * 1000);
-const DAILY_TEST_LIMIT = Number(process.env.DAILY_TEST_LIMIT || 200);
+const DAILY_TEST_LIMIT = Number(process.env.DAILY_TEST_LIMIT || 100);
 const DAILY_TOKEN_LIMIT = Number(process.env.DAILY_TOKEN_LIMIT || 100);
 
 let activeTests = 0;
