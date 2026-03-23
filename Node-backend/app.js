@@ -162,7 +162,7 @@ function generateMaskedKey() {
 function issueToken(key) {
   const token = crypto.randomBytes(24).toString("hex");
   const expiresAt = Date.now() + API_TOKEN_TTL_MS;
-  issuedTokens.set(token, { key, expiresAt, ip: null });
+  issuedTokens.set(token, { key, expiresAt });
   return token;
 }
 
@@ -289,14 +289,6 @@ app.post("/request-api-key", tokenIssueLimiter, (req, res) => {
   }
   const token = issueToken(key);
   const reqIp = req.ip;
-  const reqUa = String(req.get("user-agent") || "").trim();
-  const reqOrigin = String(req.get("origin") || "").trim();
-  const tokenData = issuedTokens.get(token);
-  if (tokenData) {
-    tokenData.ip = reqIp;
-    tokenData.ua = reqUa;
-    tokenData.origin = reqOrigin;
-  }
   const masked = generateMaskedKey();
   const secureCookie = isHttpsRequest(req);
   res.cookie("api_token", token, {
@@ -309,8 +301,6 @@ app.post("/request-api-key", tokenIssueLimiter, (req, res) => {
   safeAppendAudit({
     event: "token_issued",
     ip: reqIp,
-    ua: reqUa,
-    origin: reqOrigin,
     masked,
     ttlMs: API_TOKEN_TTL_MS,
   });
@@ -1435,38 +1425,6 @@ app.post("/run-test", runTestLimiter, async (req, res) => {
     if (!tokenData) {
       safeAppendAudit({ event: "run_test_denied", reason: "invalid_token", ip: req.ip, baseUrl });
       return res.status(403).json({ error: "Invalid or expired API key." });
-    }
-    if (tokenData.ip && tokenData.ip !== req.ip) {
-      safeAppendAudit({
-        event: "run_test_denied",
-        reason: "ip_mismatch",
-        ip: req.ip,
-        tokenIp: tokenData.ip,
-        baseUrl,
-      });
-      return res.status(403).json({ error: "API key not valid for this IP." });
-    }
-    const currentUa = String(req.get("user-agent") || "").trim();
-    const currentOrigin = String(req.get("origin") || "").trim();
-    if (tokenData.ua && currentUa && tokenData.ua !== currentUa) {
-      safeAppendAudit({
-        event: "run_test_denied",
-        reason: "ua_mismatch",
-        ip: req.ip,
-        baseUrl,
-        ua: currentUa,
-      });
-      return res.status(403).json({ error: "API key not valid for this client." });
-    }
-    if (tokenData.origin && currentOrigin && tokenData.origin !== currentOrigin) {
-      safeAppendAudit({
-        event: "run_test_denied",
-        reason: "origin_mismatch",
-        ip: req.ip,
-        baseUrl,
-        origin: currentOrigin,
-      });
-      return res.status(403).json({ error: "API key not valid for this origin." });
     }
     const normalizedMethod = method.toUpperCase();
     safeAppendAudit({
