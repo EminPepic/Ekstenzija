@@ -435,7 +435,6 @@ app.post("/request-api-key", tokenIssueLimiter, (req, res) => {
   const tokenData = issuedTokens.get(token);
   if (tokenData) {
     tokenData.ua = reqUa;
-    tokenData.ip = reqIp;
   }
   const masked = generateMaskedKey();
   const secureCookie = isHttpsRequest(req);
@@ -1585,16 +1584,6 @@ app.post("/run-test", runTestLimiter, async (req, res) => {
       safeAppendAudit({ event: "run_test_denied", reason: "invalid_token", ip: req.ip, baseUrl });
       noteDenied(req.ip, "invalid_token", { baseUrl });
       return res.status(403).json({ error: "Invalid or expired API key." });
-    }
-    if (tokenData.ip && tokenData.ip !== req.ip) {
-      safeAppendAudit({
-        event: "run_test_denied",
-        reason: "ip_mismatch",
-        ip: req.ip,
-        baseUrl,
-      });
-      noteDenied(req.ip, "ip_mismatch", { baseUrl });
-      return res.status(403).json({ error: "API key not valid for this client." });
     }
     const currentUa = String(req.get("user-agent") || "").trim();
     if (tokenData.ua && currentUa && tokenData.ua !== currentUa) {
