@@ -50,12 +50,13 @@
     <ul>
       <li>The Swagger/OpenAPI document URL provided by the user.</li>
       <li>The selected endpoint, method, and generated test payloads sent to the backend service.</li>
+      <li>Technical metadata for security and abuse prevention (e.g., IP address and user-agent).</li>
     </ul>
 
     <h2>Data We Do NOT Collect</h2>
     <ul>
-      <li>We do not collect personal user data.</li>
-      <li>We do not use cookies or track users.</li>
+      <li>We do not collect account profiles, names, emails, or payment information.</li>
+      <li>We do not use analytics or third-party trackers.</li>
     </ul>
 
     <h2>How Data Is Used</h2>
@@ -68,6 +69,10 @@
     <p>
       The extension may locally store settings (e.g., backend URL or API key) in the browser's local
       storage. This data is not sent to anyone.
+    </p>
+    <p>
+      The backend sets a short-lived, HttpOnly cookie to manage session tokens required for testing.
+      This cookie is not accessible by page scripts.
     </p>
 
     <h2>Contact</h2>

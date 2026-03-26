@@ -93,6 +93,10 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function escapeAttr(value) {
+  return escapeHtml(value);
+}
+
 function shortenText(value, maxLen = 220) {
   const raw = String(value == null ? "" : value).replace(/\s+/g, " ").trim();
   if (raw.length <= maxLen) return raw;
@@ -657,7 +661,7 @@ function showEndpoints(swagger) {
         </div>
       </div>
       <label class="method-select-label" for="pathFilter">Filter</label>
-      <input id="pathFilter" class="path-filter" type="text" placeholder="e.g. /users or /auth" value="${currentPathFilter || ""}">
+      <input id="pathFilter" class="path-filter" type="text" placeholder="e.g. /users or /auth" value="${escapeAttr(currentPathFilter || "")}">
     </div>
     <ul>
   `;
@@ -670,7 +674,7 @@ function showEndpoints(swagger) {
         const needle = currentPathFilter.toLowerCase();
         if (!path.toLowerCase().includes(needle)) continue;
       }
-      html += `<li><button class="endpoint-btn" data-path="${path}" data-method="${method}">${upper} ${path}</button></li>`;
+      html += `<li><button class="endpoint-btn" data-path="${escapeAttr(path)}" data-method="${escapeAttr(method)}">${escapeHtml(upper)} ${escapeHtml(path)}</button></li>`;
     }
   }
 

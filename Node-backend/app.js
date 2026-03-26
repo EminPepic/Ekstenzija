@@ -91,7 +91,7 @@ const tokenIssueLimiter = rateLimit({
 
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin) return cb(null, true);
+    if (!origin) return cb(new Error("Origin not allowed"));
     if (isOriginAllowed(origin)) return cb(null, true);
     return cb(new Error("Origin not allowed"));
   },
@@ -137,6 +137,18 @@ function isOriginAllowed(origin) {
   if (!o) return false;
   if (o.startsWith("chrome-extension://")) return true;
   return getAllowedOrigins().some((allowed) => String(allowed || "").trim() === o);
+}
+
+function getRequestOrigin(req) {
+  const origin = String(req.get("origin") || "").trim();
+  if (origin) return origin;
+  const referer = String(req.get("referer") || "").trim();
+  if (!referer) return "";
+  try {
+    return new URL(referer).origin;
+  } catch (e) {
+    return "";
+  }
 }
 
 function hostContainsKeyword(hostname) {
@@ -415,6 +427,11 @@ function isValidUrl(s) {
 app.get("/health", (req, res) => res.json({ ok: true }));
 
 app.post("/request-api-key", tokenIssueLimiter, (req, res) => {
+  const reqOrigin = getRequestOrigin(req);
+  if (!reqOrigin || !isOriginAllowed(reqOrigin)) {
+    safeAppendAudit({ event: "request_api_key_denied", reason: "origin_not_allowed", ip: req.ip, origin: reqOrigin });
+    return res.status(403).json({ error: "Origin not allowed." });
+  }
   if (isIpBanned(req.ip)) {
     safeAppendAudit({ event: "request_api_key_denied", reason: "ip_banned", ip: req.ip });
     return res.status(403).json({ error: "Access temporarily blocked." });
@@ -435,6 +452,7 @@ app.post("/request-api-key", tokenIssueLimiter, (req, res) => {
   const tokenData = issuedTokens.get(token);
   if (tokenData) {
     tokenData.ua = reqUa;
+    tokenData.ip = reqIp;
   }
   const masked = generateMaskedKey();
   const secureCookie = isHttpsRequest(req);
@@ -1584,6 +1602,16 @@ app.post("/run-test", runTestLimiter, async (req, res) => {
       safeAppendAudit({ event: "run_test_denied", reason: "invalid_token", ip: req.ip, baseUrl });
       noteDenied(req.ip, "invalid_token", { baseUrl });
       return res.status(403).json({ error: "Invalid or expired API key." });
+    }
+    if (tokenData.ip && tokenData.ip !== req.ip) {
+      safeAppendAudit({
+        event: "run_test_denied",
+        reason: "ip_mismatch",
+        ip: req.ip,
+        baseUrl,
+      });
+      noteDenied(req.ip, "ip_mismatch", { baseUrl });
+      return res.status(403).json({ error: "API key not valid for this client." });
     }
     const currentUa = String(req.get("user-agent") || "").trim();
     if (tokenData.ua && currentUa && tokenData.ua !== currentUa) {
