@@ -56,6 +56,58 @@ To revoke access:
    - Click **Load unpacked** and select `swagger-plugin`
    - In the UI, set the backend URL (default is already set) and click **Request API key**
 
+# Local vs Public (Render) usage
+
+You have two ways to run the project, depending on what you want to test.
+
+## Option A: Local backend (recommended for testing local services)
+
+Use this if you want to test APIs that run on your own machine (localhost or private network).
+
+Steps:
+1. Start the backend locally (see **Quick start (local)** above).
+2. In the extension UI, set the backend URL to:
+   - `http://localhost:3000`
+3. Now you can test local services like:
+   - `http://localhost:5000`
+   - `http://127.0.0.1:8080`
+
+Why this works:
+When the backend runs locally, `localhost` points to your own computer.
+
+## Option B: Public backend (Render) for public URLs only
+
+Use this if you want a zero-setup demo or to test public/staging URLs.
+
+Important:
+If the backend runs on Render, it **cannot access your local machine**.
+So `localhost` or private network targets will not work.
+
+Steps:
+1. Keep the backend URL set to the Render service:
+   - `https://swagger-tester-backend.onrender.com`
+2. Only test public URLs (staging, sandbox, demo APIs).
+
+## Switching default backend (optional)
+
+The extension stores the backend URL in `localStorage`.
+If you want to change the default:
+
+- Open `swagger-plugin/popup.js`
+- You will see:
+
+```js
+// const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "http://localhost:3000").trim();
+const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "https://swagger-tester-backend.onrender.com").trim();
+```
+
+If you want localhost as default, comment/uncomment like this:
+
+```js
+const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "http://localhost:3000").trim();
+// const BACKEND_URL = (localStorage.getItem("swaggerTesterBackendUrl") || "https://swagger-tester-backend.onrender.com").trim();
+```
+
 # Configuration
 
 Backend environment variables:
@@ -104,9 +156,9 @@ Results are evaluated based on:
 
 Test status can be:
 
-* **Passed** – payload was blocked or safely handled
-* **Failed** – vulnerability indicators found
-* **Inconclusive** – result is unclear
+* **Passed** - payload was blocked or safely handled
+* **Failed** - vulnerability indicators found
+* **Inconclusive** - result is unclear
 
 # Report includes
 
@@ -144,6 +196,7 @@ Running tests:
 POST /run-test
 ```
 *automatic API security and performance testing*.
+
 
 
 
