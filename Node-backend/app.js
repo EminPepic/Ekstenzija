@@ -91,7 +91,7 @@ const tokenIssueLimiter = rateLimit({
 
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin) return cb(new Error("Origin not allowed"));
+    if (!origin) return cb(null, true);
     if (isOriginAllowed(origin)) return cb(null, true);
     return cb(new Error("Origin not allowed"));
   },
@@ -137,18 +137,6 @@ function isOriginAllowed(origin) {
   if (!o) return false;
   if (o.startsWith("chrome-extension://")) return true;
   return getAllowedOrigins().some((allowed) => String(allowed || "").trim() === o);
-}
-
-function getRequestOrigin(req) {
-  const origin = String(req.get("origin") || "").trim();
-  if (origin) return origin;
-  const referer = String(req.get("referer") || "").trim();
-  if (!referer) return "";
-  try {
-    return new URL(referer).origin;
-  } catch (e) {
-    return "";
-  }
 }
 
 function hostContainsKeyword(hostname) {
@@ -427,11 +415,6 @@ function isValidUrl(s) {
 app.get("/health", (req, res) => res.json({ ok: true }));
 
 app.post("/request-api-key", tokenIssueLimiter, (req, res) => {
-  const reqOrigin = getRequestOrigin(req);
-  if (!reqOrigin || !isOriginAllowed(reqOrigin)) {
-    safeAppendAudit({ event: "request_api_key_denied", reason: "origin_not_allowed", ip: req.ip, origin: reqOrigin });
-    return res.status(403).json({ error: "Origin not allowed." });
-  }
   if (isIpBanned(req.ip)) {
     safeAppendAudit({ event: "request_api_key_denied", reason: "ip_banned", ip: req.ip });
     return res.status(403).json({ error: "Access temporarily blocked." });
